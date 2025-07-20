@@ -69,7 +69,7 @@ struct disk_info {
 	size_t free_sectors;
 };
 
-int get_device_size(const char *device, uint64_t *size)
+int disk_get_size(const char *device, uint64_t *size)
 {
 	int ret = 0;
 	int fd	= -1;
@@ -96,7 +96,7 @@ exit:
 	return ret;
 }
 
-int read_disk_info(struct fdisk_context *ctx, struct disk_info *disk)
+int disk_read_info(struct fdisk_context *ctx, struct disk_info *disk)
 {
 	disk->total_sectors = fdisk_get_nsectors(ctx);
 
@@ -138,14 +138,14 @@ int read_disk_info(struct fdisk_context *ctx, struct disk_info *disk)
 	return 0;
 }
 
-void display_disk_info(const struct disk_info *disk, uint64_t device_size)
+void disk_display_info(const struct disk_info *disk, uint64_t device_size)
 {
 	LOG("Device size: %lu bytes (%lu MB)\n", device_size, device_size / MB);
 	LOG("\tsectors: %llu\n", (unsigned long long)disk->total_sectors);
 	LOG("\tpartitions count: %zu\n", disk->partition_count);
 	LOG("\tfree space at the end: %zu sectors (%zu MB)\n",
-		   disk->free_sectors,
-		   disk->free_sectors * SECTOR_SIZE / MB);
+		disk->free_sectors,
+		disk->free_sectors * SECTOR_SIZE / MB);
 
 	for (size_t n = 0; n < disk->partition_count; n++) {
 		const struct partition_info *pinfo = &disk->partitions[n];
@@ -158,19 +158,19 @@ void display_disk_info(const struct disk_info *disk, uint64_t device_size)
 		uint64_t approx_size_mb = pinfo->size * SECTOR_SIZE / MB;
 
 		LOG("[%zu] partno: %lu start: %llu end: %llu size: %llu (%llu MB)\n",
-			   n,
-			   pinfo->partno,
-			   (unsigned long long)pinfo->start,
-			   (unsigned long long)pinfo->end,
-			   (unsigned long long)pinfo->size,
-			   (unsigned long long)approx_size_mb);
+			n,
+			pinfo->partno,
+			(unsigned long long)pinfo->start,
+			(unsigned long long)pinfo->end,
+			(unsigned long long)pinfo->size,
+			(unsigned long long)approx_size_mb);
 	}
 }
 
-int create_userfs_partition(struct fdisk_context *ctx,
-							struct fdisk_label *label,
-							struct disk_info *disk,
-							struct partition_info *pinfo)
+int disk_create_userfs_partition(struct fdisk_context *ctx,
+								 struct fdisk_label *label,
+								 struct disk_info *disk,
+								 struct partition_info *pinfo)
 {
 	int ret						 = 0;
 	struct fdisk_partition *part = NULL;
@@ -193,9 +193,9 @@ int create_userfs_partition(struct fdisk_context *ctx,
 	pinfo->used	  = 1;
 
 	LOG("Creating userfs partition: start=%llu, end=%llu, size=%llu\n",
-		   (unsigned long long)pinfo->start,
-		   (unsigned long long)pinfo->end,
-		   (unsigned long long)pinfo->size);
+		(unsigned long long)pinfo->start,
+		(unsigned long long)pinfo->end,
+		(unsigned long long)pinfo->size);
 
 	ASSERT(disk->partitions[pinfo->index - 1].end + 1 == pinfo->start,
 		   "Previous partition end does not match current partition start");
@@ -228,7 +228,7 @@ exit:
 	return ret;
 }
 
-void free_disk_info(struct disk_info *disk)
+void disk_free_info(struct disk_info *disk)
 {
 	disk->partition_count = 0;
 	disk->total_sectors	  = 0;
@@ -247,7 +247,7 @@ void print_usage(const char *program_name)
 	printf("\n");
 }
 
-int delete_userfs_partition(struct fdisk_context *ctx, struct partition_info *pinfo)
+int disk_delete_userfs_partition(struct fdisk_context *ctx, struct partition_info *pinfo)
 {
 	int ret = 0;
 
@@ -307,7 +307,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (get_device_size(DISK, &device_size) != 0) ERR_GOTO("Failed to get device size");
+	if (disk_get_size(DISK, &device_size) != 0) ERR_GOTO("Failed to get device size");
 
 	fdisk_init_debug(0x0);
 
@@ -323,20 +323,20 @@ int main(int argc, char *argv[])
 	int type = fdisk_label_get_type(label);
 	if (type != FDISK_DISKLABEL_DOS) ERR_GOTO("Unsupported partition table type");
 
-	if (read_disk_info(ctx, &disk) != 0) ERR_GOTO("Failed to read disk info");
+	if (disk_read_info(ctx, &disk) != 0) ERR_GOTO("Failed to read disk info");
 
-	display_disk_info(&disk, device_size);
+	disk_display_info(&disk, device_size);
 
 	if (delete_mode) {
-		if (delete_userfs_partition(ctx, &disk.partitions[USERFS_PART_NO]) != 0)
+		if (disk_delete_userfs_partition(ctx, &disk.partitions[USERFS_PART_NO]) != 0)
 			ERR_GOTO("Failed to delete userfs partition");
 	} else {
-		if (create_userfs_partition(
+		if (disk_create_userfs_partition(
 				ctx, label, &disk, &disk.partitions[USERFS_PART_NO]) != 0)
 			ERR_GOTO("Failed to create userfs partition");
 	}
 
-	free_disk_info(&disk);
+	disk_free_info(&disk);
 
 	if (fdisk_deassign_device(ctx, 0) != 0) ERR_GOTO("Failed to deassign device");
 
