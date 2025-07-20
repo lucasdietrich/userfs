@@ -1,0 +1,8 @@
+# .gitignore file
+
+# .clangd
+/.cache
+
+# Meson
+/build
+
