@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <linux/fs.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #define DISK "/dev/mmcblk0"
@@ -281,9 +282,90 @@ int disk_delete_userfs_partition(struct fdisk_context *ctx, struct partition_inf
 	return 0;
 }
 
+int run_command(char *buf, ssize_t *buflen, const char *program, char *const argv[])
+{
+	int ret;
+
+	#define R 0
+	#define W 1
+
+	int pipeds[2u]; // [read write]
+
+	ret = pipe(pipeds);
+	if (ret < 0) {
+		printf("pip ret: %d\n", ret);
+		exit(EXIT_FAILURE);
+	}
+
+	// char b[3] = {'a', 'b', 'c'};
+	// printf("w: %ld\n", write(pipeds[1], b, 3));
+	// b[0] = b[1] = b[2] = '\0';
+	// printf("r: %ld %hhu %hhu %hhu\n", read(pipeds[0], b, 3), b[0], b[1], b[2]);
+	
+	ret = fork();
+
+	if (ret < 0) {
+		fprintf(stderr, "fork ret: %d\n", ret);
+		close(pipeds[0]);
+		close(pipeds[1]);
+		goto exit;
+	} else if (ret == 0) {
+		// child
+		close(pipeds[R]);
+		ret = dup2(pipeds[W], STDOUT_FILENO);
+		close(pipeds[W]);
+		fprintf(stderr, "dup2 ret: %d\n", ret);
+
+		printf("execvp %s\n", program);
+		ret = execvp(program, argv);
+		if (ret < 0) {
+			printf("execvp failed ret: %d", ret);
+			exit(EXIT_FAILURE);
+		} else {
+			// unreachable, execvp succeeded
+		}
+	} else {
+		// parent
+		int pid = ret;
+		printf("child pid: %d\n", pid);
+
+		*buflen = read(pipeds[R], buf, *buflen);
+		printf("buflen: %ld\n", *buflen);
+		close(pipeds[W]);
+
+		ret = waitpid(pid, NULL, 0);
+		printf("waitpid ret: %d\n", ret);
+	}
+
+	return ret;
+
+exit:
+	return ret;
+}
+
 int main(int argc, char *argv[])
 {
+
 	int ret				  = 0;
+
+	char *const args[] = {
+		"/bin/ls",
+		"-lh",
+		".",
+		NULL
+	};
+	char buf[100];
+	ssize_t buflen = sizeof(buf);
+
+	ret = run_command(buf, &buflen, "/bin/ls", args);
+	printf("run_command ret: %d\n", ret);
+
+	if (buflen != 0) {
+		printf("ZZZ: %s", buf);
+	}
+
+	return 0;
+
 	uint64_t device_size  = 0;
 	struct disk_info disk = {0};
 	int delete_mode		  = 0;
