@@ -41,7 +41,7 @@ executable(
   dependencies: dependencies,
   include_directories: include_directories,
   link_with: link_with,
-  install: false,
+  install: true,
   install_dir: 'bin',
 )
 
