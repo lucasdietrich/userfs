@@ -8,13 +8,13 @@ qemu-debug *args: build
   ./scripts/run-qemu.sh --debug {{exe}} {{args}}
 
 disassemble: build
-  scripts/disassemble.sh build/c-hello-world
+  scripts/disassemble.sh build/userfs
 clang-format:
   ./scripts/do-clang-format.sh
 
 builddir := "build"
-exe := "build/c-hello-world"
-
+exe := "build/userfs"
+target := "rpi3"
 
 # Setup, runs only if builddir or ninja file is missing
 setup:
@@ -28,8 +28,8 @@ reconfigure:
 build: setup
 	meson compile -C {{builddir}}
 
-
-
+deploy: build
+  scp {{exe}} {{target}}:~
 
 
 clean:

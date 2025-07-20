@@ -1,2 +1,3 @@
-option('example', type: 'boolean', value: true, description: 'Example option')
+option('partition_table', type: 'combo', choices: ['dos'], value: 'dos',
+  description: 'Partition table type to use for the disk image')
 

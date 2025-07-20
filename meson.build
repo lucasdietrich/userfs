@@ -1,4 +1,4 @@
-project('c-hello-world', 'cpp', 'c',
+project('userfs', 'cpp', 'c',
   version: '1.0',
   default_options: [
     'cpp_std=c++17',
@@ -15,16 +15,12 @@ add_global_arguments([
 ], language: ['cpp', 'c'])
 
 
-if get_option('example')
-  message('Example option is enabled')
-  add_project_arguments('-DEXAMPLE_ENABLED', language: ['cpp', 'c'])
-else
-  message('Example option is disabled')
+if get_option('partition_table') == 'dos'
+  add_global_arguments('-DUSERFS_PARTITION_TABLE_DOS', language: ['cpp', 'c'])
 endif
 
-
-
 dependencies = [
+  dependency('fdisk'),
 ]
 
 sources = [
