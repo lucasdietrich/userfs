@@ -28,7 +28,7 @@ sources = [
 ]
 
 include_directories = [
-  'include',
+  # 'include',
   'src',
 ]
 
