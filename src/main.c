@@ -827,8 +827,9 @@ static int step1_create_userfs_partition(struct args *args, struct disk_info *di
         // from a previous installation, unless the user asked to trust it
         // with the -t flag.
         if (args->flags & FLAG_USERFS_TRUST_RESIDENT) {
-            printf("Trusting existing userfs partition without formatting\n");
+            printf("First boot: Trusting existing userfs partition without formatting\n");
         } else {
+            printf("First boot: Userfs partition created, formatting to BTRFS\n");
             args->flags |= FLAG_USERFS_FORCE_FORMAT;
         }
     } else if (ret == 1) {
@@ -927,41 +928,39 @@ static int step2_create_btrfs_filesystem(struct args *args, struct part_info *us
         break;
     }
 
-    if (!do_create_btrfs) {
-        LOG("Userfs partition (%s) is already BTRFS, skipping creation\n",
-            userfs_part_device);
-        return 0; // Nothing to do
-    }
+    if (do_create_btrfs) {
+        // If the userfs partition is not BTRFS, create it
+        LOG("Creating BTRFS filesystem on %s\n", userfs_part_device);
 
-    // If the userfs partition is not BTRFS, create it
-    LOG("Creating BTRFS filesystem on %s\n", userfs_part_device);
+        const char *const mkfs_args[] = {"mkfs.btrfs",
+                                        "-f", // Force creation
+                                        userfs_part_device,
+                                        NULL};
 
-    const char *const mkfs_args[] = {"mkfs.btrfs",
-                                     "-f", // Force creation
-                                     userfs_part_device,
-                                     NULL};
+        command_display(mkfs_args[0], (char *const *)mkfs_args);
+        ret = command_run(NULL, NULL, mkfs_args[0], (char *const *)mkfs_args);
+        LOG("mkfs.btrfs returned: %d\n", ret);
+        if (ret < 0) {
+            fprintf(stderr, "Failed to create BTRFS filesystem: %s\n", strerror(errno));
+            goto exit;
+        }
 
-    command_display(mkfs_args[0], (char *const *)mkfs_args);
-    ret = command_run(NULL, NULL, mkfs_args[0], (char *const *)mkfs_args);
-    LOG("mkfs.btrfs returned: %d\n", ret);
-    if (ret < 0) {
-        fprintf(stderr, "Failed to create BTRFS filesystem: %s\n", strerror(errno));
-        goto exit;
-    }
+        LOG("BTRFS filesystem created successfully on %s\n", userfs_part_device);
 
-    LOG("BTRFS filesystem created successfully on %s\n", userfs_part_device);
-
-    // Create the mount point if it doesn't exist
-    ret = create_directory(USERFS_MOUNT_POINT);
-    if (ret != 0) {
-        fprintf(stderr,
-                "Failed to create mount point %s: %s\n",
-                USERFS_MOUNT_POINT,
-                strerror(errno));
-        goto exit;
+        // Create the mount point if it doesn't exist
+        ret = create_directory(USERFS_MOUNT_POINT);
+        if (ret != 0) {
+            fprintf(stderr,
+                    "Failed to create mount point %s: %s\n",
+                    USERFS_MOUNT_POINT,
+                    strerror(errno));
+            goto exit;
+        }
     }
 
     // Mount the btrfs filesystem
+    LOG("Mounting BTRFS filesystem on %s\n", USERFS_MOUNT_POINT);
+
     ret = mount(userfs_part_device, USERFS_MOUNT_POINT, "btrfs", 0, NULL);
     if (ret != 0) {
         fprintf(stderr,
@@ -971,35 +970,38 @@ static int step2_create_btrfs_filesystem(struct args *args, struct part_info *us
         goto exit;
     }
 
-    // Create subvolumes
-    // FIXME use the btrfs library instead of running commands
+    if (do_create_btrfs) {
+        // Create subvolumes
+        // FIXME use the btrfs library instead of running commands
 
-    char sv_name[PATH_MAX];
-    const char *btrfs_create_subvolumes[] = {
-        "btrfs",
-        "subvolume",
-        "create",
-        sv_name, // Placeholder for subvolume name
-        NULL,    // End of arguments
-    };
+        char sv_name[PATH_MAX];
+        const char *btrfs_create_subvolumes[] = {
+            "btrfs",
+            "subvolume",
+            "create",
+            sv_name, // Placeholder for subvolume name
+            NULL,    // End of arguments
+        };
 
-    for (size_t sv = 0u; sv < ARRAY_SIZE(btrfs_subvolumes); sv++) {
-        snprintf(
-            sv_name, sizeof(sv_name), "%s/%s", USERFS_MOUNT_POINT, btrfs_subvolumes[sv]);
+        for (size_t sv = 0u; sv < ARRAY_SIZE(btrfs_subvolumes); sv++) {
+            snprintf(
+                sv_name, sizeof(sv_name), "%s/%s", USERFS_MOUNT_POINT, btrfs_subvolumes[sv]);
 
-        command_display(btrfs_create_subvolumes[0],
-                        (char *const *)btrfs_create_subvolumes);
-        ret = command_run(NULL,
-                          NULL,
-                          btrfs_create_subvolumes[0],
-                          (char *const *)btrfs_create_subvolumes);
-        LOG("btrfs subvolume create returned: %d\n", ret);
-        if (ret < 0) {
-            fprintf(stderr,
-                    "Failed to create BTRFS subvolume %s: %s\n",
-                    btrfs_create_subvolumes[3],
-                    strerror(errno));
-            goto exit;
+            LOG("Creating BTRFS subvolume: %s\n", sv_name);
+
+            command_display(btrfs_create_subvolumes[0],
+                            (char *const *)btrfs_create_subvolumes);
+            ret = command_run(NULL,
+                            NULL,
+                            btrfs_create_subvolumes[0],
+                            (char *const *)btrfs_create_subvolumes);
+            if (ret < 0) {
+                fprintf(stderr,
+                        "Failed to create BTRFS subvolume %s: %s\n",
+                        btrfs_create_subvolumes[3],
+                        strerror(errno));
+                goto exit;
+            }
         }
     }
 
