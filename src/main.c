@@ -14,7 +14,13 @@
  * MAIN COMMAND FLOW:
  *
  * 1. PARSE ARGUMENTS:
- *    - Parse command line options (-v verbose, -d delete, -f force format, -h help)
+ *    - Parse command line options:
+ *      * -v: Enable verbose output
+ *      * -d: Delete userfs partition and exit
+ *      * -f: Force mkfs.btrfs even if already initialized (mutually exclusive with -t)
+ *      * -t: Trust existing userfs filesystem after partition creation (first boot only)
+ *      * -o: Skip overlayfs setup (useful for debugging)
+ *      * -h: Show help message
  *
  * 2. DISK INSPECTION & PARTITION MANAGEMENT:
  *    - Get disk size using ioctl(BLKGETSIZE64) on /dev/mmcblk0
@@ -26,24 +32,35 @@
  *    ELSE:
  *      - Create userfs partition if it doesn't exist using remaining free space
  *      - Write partition table changes to disk using fdisk_write_disklabel()
+ *      
+ *    FIRST BOOT vs SUBSEQUENT BOOT LOGIC:
+ *      - If partition was just created (first boot):
+ *        * Default: Force format to BTRFS (ignores existing filesystem)
+ *        * With -t flag: Trust existing filesystem without formatting
+ *      - If partition already existed (subsequent boots):
+ *        * Preserve existing filesystem unless -f flag is used
  *
  * 3. PARTITION TABLE REFRESH:
  *    - Run `partprobe /dev/mmcblk0` to refresh kernel partition table
+ *    - Wait for device nodes to appear
  *
  * 4. FILESYSTEM PROBING:
  *    - Probe filesystem on userfs partition (/dev/mmcblk0p3) using libblkid
  *    - Detect existing filesystem type and UUID
  *
  * 5. BTRFS FILESYSTEM CREATION:
- *    - Skip if already BTRFS and not forced (-f flag)
- *    - Run `mkfs.btrfs -f /dev/mmcblk0p3` if partition is unformatted or force flag used
+ *    - Skip if already BTRFS and not forced (-f flag) and not first boot
+ *    - Run `mkfs.btrfs -f /dev/mmcblk0p3` if:
+ *      * Partition is unformatted, OR
+ *      * Force flag (-f) is used, OR  
+ *      * First boot and trust flag (-t) is NOT used
  *    - Create mount point /mnt/userfs
  *    - Mount BTRFS filesystem on /mnt/userfs
- *    - Create BTRFS subvolumes:
+ *    - Create BTRFS subvolumes (only when filesystem is newly created):
  *      * vol-data (for /var and /home overlays)
  *      * vol-config (for /etc overlay)
  *
- * 6. OVERLAYFS SETUP:
+ * 6. OVERLAYFS SETUP (skipped if -o flag used):
  *    - Unmount existing /var/volatile tmpfs
  *    - For each mount point (/etc, /var, /home):
  *      * Create upper and work directories in appropriate BTRFS subvolumes
