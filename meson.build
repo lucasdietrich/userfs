@@ -21,6 +21,7 @@ endif
 
 dependencies = [
   dependency('fdisk'),
+  dependency('blkid'),
 ]
 
 sources = [

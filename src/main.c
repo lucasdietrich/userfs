@@ -4,14 +4,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
+// #include <cstdio>
 #include <fcntl.h>
 #include <linux/fs.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
+#include <getopt.h> 
 #include <unistd.h>
+#include <errno.h>
 
-#define DISK "/dev/mmcblk0"
+#include <blkid.h>
+
+#define DISK		"/dev/mmcblk0"
+#define PART_BOOT	DISK "p1"
+#define PART_ROOTFS	DISK "p2"
+#define PART_USERFS	DISK "p3"
 
 #define BOOT_PART_NO	 0u
 #define ROOTFS_PART_NO	 1u
@@ -97,7 +106,34 @@ exit:
 	return ret;
 }
 
-int disk_read_info(struct fdisk_context *ctx, struct disk_info *disk)
+static int disk_part_probe(const char *device)
+{
+	int ret = 0;
+	int fd	= -1;
+
+	fd = open(device, 0);
+	if (fd < 0) {
+		perror("open");
+		ERR_GOTO("Failed to open device");
+	}
+
+	if (ioctl(fd, BLKRRPART, NULL) == -1) {
+		perror("ioctl BLKRRPART");
+		// ERR_GOTO("Failed to probe partitions");
+	}
+
+	if (close(fd) < 0) {
+		perror("close");
+		ERR_GOTO("Failed to close device");
+	}
+
+	return 0;
+exit:
+	if (fd >= 0) close(fd);
+	return ret;
+}
+
+static int disk_read_info(struct fdisk_context *ctx, struct disk_info *disk)
 {
 	disk->total_sectors = fdisk_get_nsectors(ctx);
 
@@ -139,7 +175,7 @@ int disk_read_info(struct fdisk_context *ctx, struct disk_info *disk)
 	return 0;
 }
 
-void disk_display_info(const struct disk_info *disk, uint64_t device_size)
+static void disk_display_info(const struct disk_info *disk, uint64_t device_size)
 {
 	LOG("Device size: %lu bytes (%lu MB)\n", device_size, device_size / MB);
 	LOG("\tsectors: %llu\n", (unsigned long long)disk->total_sectors);
@@ -168,7 +204,7 @@ void disk_display_info(const struct disk_info *disk, uint64_t device_size)
 	}
 }
 
-int disk_create_userfs_partition(struct fdisk_context *ctx,
+static int disk_create_userfs_partition(struct fdisk_context *ctx,
 								 struct fdisk_label *label,
 								 struct disk_info *disk,
 								 struct partition_info *pinfo)
@@ -229,18 +265,19 @@ exit:
 	return ret;
 }
 
-void disk_free_info(struct disk_info *disk)
+static void disk_free_info(struct disk_info *disk)
 {
 	disk->partition_count = 0;
 	disk->total_sectors	  = 0;
 }
 
-void print_usage(const char *program_name)
+static void print_usage(const char *program_name)
 {
 	printf("Usage: %s [OPTIONS]\n", program_name);
 	printf("Manage userfs partition on %s\n\n", DISK);
 	printf("Options:\n");
 	printf("  -d    Delete partition %d (userfs) if it exists\n", USERFS_PART_NO);
+	printf("  -f	Force mkfs.btrfs even if already initialized\n");
 	printf("  -v    Enable verbose output\n");
 	printf("  -h    Show this help message\n");
 	printf("  (no args) Create partition %d (userfs) if it doesn't exist\n",
@@ -248,7 +285,7 @@ void print_usage(const char *program_name)
 	printf("\n");
 }
 
-int disk_delete_userfs_partition(struct fdisk_context *ctx, struct partition_info *pinfo)
+static int disk_delete_userfs_partition(struct fdisk_context *ctx, struct partition_info *pinfo)
 {
 	int ret = 0;
 
@@ -282,116 +319,257 @@ int disk_delete_userfs_partition(struct fdisk_context *ctx, struct partition_inf
 	return 0;
 }
 
-int run_command(char *buf, ssize_t *buflen, const char *program, char *const argv[])
+static int run_command(char *buf, ssize_t *buflen, const char *program, char *const argv[])
 {
-	int ret;
+	int ret		  = -1;
+	int pipefd[2] = {-1, -1}; // [0] = read, [1] = write
+	pid_t pid;
 
-	#define R 0
-	#define W 1
-
-	int pipeds[2u]; // [read write]
-
-	ret = pipe(pipeds);
-	if (ret < 0) {
-		printf("pip ret: %d\n", ret);
-		exit(EXIT_FAILURE);
+	if (!buf || !buflen || *buflen <= 0 || !program || !argv) {
+		errno = EINVAL;
+		return -1;
 	}
 
-	// char b[3] = {'a', 'b', 'c'};
-	// printf("w: %ld\n", write(pipeds[1], b, 3));
-	// b[0] = b[1] = b[2] = '\0';
-	// printf("r: %ld %hhu %hhu %hhu\n", read(pipeds[0], b, 3), b[0], b[1], b[2]);
-	
-	ret = fork();
+	if (pipe(pipefd) < 0) {
+		perror("pipe");
+		return -1;
+	}
 
-	if (ret < 0) {
-		fprintf(stderr, "fork ret: %d\n", ret);
-		close(pipeds[0]);
-		close(pipeds[1]);
-		goto exit;
-	} else if (ret == 0) {
-		// child
-		close(pipeds[R]);
-		ret = dup2(pipeds[W], STDOUT_FILENO);
-		close(pipeds[W]);
-		fprintf(stderr, "dup2 ret: %d\n", ret);
+	pid = fork();
+	if (pid < 0) {
+		perror("fork");
+		goto cleanup;
+	} else if (pid == 0) {
+		// Child
+		close(pipefd[0]); // Close read end
 
-		printf("execvp %s\n", program);
-		ret = execvp(program, argv);
-		if (ret < 0) {
-			printf("execvp failed ret: %d", ret);
-			exit(EXIT_FAILURE);
-		} else {
-			// unreachable, execvp succeeded
+		if (dup2(pipefd[1], STDOUT_FILENO) < 0) {
+			perror("dup2");
+			_exit(EXIT_FAILURE);
 		}
+
+		close(pipefd[1]); // Not needed after dup2
+
+		execvp(program, argv);
+		// If execvp returns, it failed
+		perror("execvp");
+		_exit(EXIT_FAILURE);
 	} else {
-		// parent
-		int pid = ret;
-		printf("child pid: %d\n", pid);
+		// Parent
+		close(pipefd[1]); // Close write end
 
-		*buflen = read(pipeds[R], buf, *buflen);
-		printf("buflen: %ld\n", *buflen);
-		close(pipeds[W]);
+		ssize_t nread = read(pipefd[0], buf, *buflen);
+		if (nread < 0) {
+			perror("read");
+			goto cleanup;
+		}
 
-		ret = waitpid(pid, NULL, 0);
-		printf("waitpid ret: %d\n", ret);
+		*buflen = nread;
+		ret		= waitpid(pid, NULL, 0);
+		if (ret < 0) {
+			perror("waitpid");
+		}
 	}
 
-	return ret;
-
-exit:
+cleanup:
+	if (pipefd[0] != -1) close(pipefd[0]);
+	if (pipefd[1] != -1) close(pipefd[1]);
 	return ret;
 }
 
-int main(int argc, char *argv[])
+#define FLAG_USERFS_DELETE		 (1 << 1u)
+#define FLAG_USERFS_FORCE_FORMAT (1 << 2u)
+
+struct args {
+	uint32_t flags; // Bitmask for flags
+};
+
+static int parse_args(int argc, char *argv[], struct args *args)
 {
+	int opt;
 
-	int ret				  = 0;
-
-	char *const args[] = {
-		"/bin/ls",
-		"-lh",
-		".",
-		NULL
-	};
-	char buf[100];
-	ssize_t buflen = sizeof(buf);
-
-	ret = run_command(buf, &buflen, "/bin/ls", args);
-	printf("run_command ret: %d\n", ret);
-
-	if (buflen != 0) {
-		printf("ZZZ: %s", buf);
+	if (!args) {
+		fprintf(stderr, "Invalid arguments\n");
+		return -1;
 	}
 
-	return 0;
-
-	uint64_t device_size  = 0;
-	struct disk_info disk = {0};
-	int delete_mode		  = 0;
-
-	struct fdisk_context *ctx = NULL;
-	struct fdisk_label *label = NULL;
-
-	// Parse command line arguments
-	for (int i = 1; i < argc; i++) {
-		if (strcmp(argv[i], "-h") == 0) {
+	while ((opt = getopt(argc, argv, "hdfv")) != -1) {
+		switch (opt) {
+		case 'h':
 			print_usage(argv[0]);
 			return 0;
-		} else if (strcmp(argv[i], "-d") == 0) {
-			delete_mode = 1;
-		} else if (strcmp(argv[i], "-v") == 0) {
+		case 'd':
+			args->flags |= FLAG_USERFS_DELETE;
+			break;
+		case 'f':
+			args->flags |= FLAG_USERFS_FORCE_FORMAT;
+			break;
+		case 'v':
 			verbose = 1;
-		} else {
-			fprintf(stderr, "Unknown option: %s\n", argv[i]);
+			break;
+		case '?':
+			fprintf(stderr, "Unknown option: -%c\n", opt);
+			print_usage(argv[0]);
+			return -1;
+		default:
+			fprintf(stderr, "Unknown option: -%c\n", opt);
 			print_usage(argv[0]);
 			return -1;
 		}
 	}
 
+	return 0;
+}
+
+static int do_blkid(const char *device)
+{
+	int ret;
+	int disk_fd;
+
+	printf("Running blkid to check partition type...\n");
+
+	blkid_probe pr = blkid_new_probe ();
+	if (!pr) {
+		fprintf(stderr, "Failed to create blkid probe\n");
+		return -1;
+	}
+
+	disk_fd = open(device, O_RDWR);
+	if (disk_fd < 0) {
+		perror("open");
+		ERR_GOTO("Failed to open device");
+	}
+
+	
+	// blkid_probe pr = blkid_new_probe_from_filename(DISK);
+
+	// offset = 0, size = 0 (whole device)
+	ret = blkid_probe_set_device(pr, disk_fd, 0, 0);
+	if (ret < 0) {
+		fprintf(stderr, "Failed to set device for blkid probe: %s\n", strerror(errno));
+		goto exit;
+	}
+
+	blkid_probe_enable_partitions(pr, true);
+	blkid_probe_enable_superblocks(pr, true);
+	blkid_probe_set_superblocks_flags(pr, BLKID_SUBLKS_UUID | BLKID_SUBLKS_LABEL);
+
+	ret = blkid_do_safeprobe(pr);
+	printf("blkid_do_safeprobe returned: %d\n", ret);
+
+	// ret = blkid_do_fullprobe(pr);
+	// printf("blkid_do_fullprobe returned: %d\n", ret);
+
+	blkid_partlist ls;
+	int nparts;
+
+	ls = blkid_probe_get_partitions(pr);
+	nparts = blkid_partlist_numof_partitions(ls);
+
+	printf("Number of partitions found: %d\n", nparts);
+
+			const char *fs_uuid = NULL;
+		blkid_probe_lookup_value(pr, "UUID", &fs_uuid, NULL);
+		printf("Filesystem UUID: %s\n", fs_uuid);
+
+	// iterate over all partitions and print their info
+	for (int i = 0; i < nparts; i++) {
+		blkid_partition part = blkid_partlist_get_partition(ls, i);
+		if (part) {
+
+			int partno = blkid_partition_get_partno(part);
+			char partdev[PATH_MAX];
+			snprintf(partdev, sizeof(partdev), "%sp%d", device, partno);  // e.g. /dev/mmcblk0p1
+
+			// Open a new probe on the partition device
+			blkid_probe part_probe = blkid_new_probe_from_filename(partdev);
+			if (!part_probe) {
+				fprintf(stderr, "Failed to create probe for %s\n", partdev);
+				continue;
+			}
+
+			blkid_do_safeprobe(part_probe);
+
+			const char *fs_uuid = NULL;
+			const char *part_uuid = NULL;
+			const char *type = NULL;
+			blkid_probe_lookup_value(part_probe, "UUID", &fs_uuid, NULL);
+			blkid_probe_lookup_value(part_probe, "PARTUUID", &part_uuid, NULL);
+			blkid_probe_lookup_value(part_probe, "TYPE", &type, NULL);
+
+			printf("Partition %d: %s\n", i, partdev);
+			printf("  PARTUUID: %s\n", part_uuid);
+			printf("  Filesystem UUID: %s\n", fs_uuid);
+			printf("  Type: %s\n", type ? type : "unknown");
+
+			const char *block_name = blkid_partition_get_name(part);
+			const char *block_uuid = blkid_partition_get_uuid(part);
+			int block_type = blkid_partition_get_type(part);
+			const char *block_type_string = blkid_partition_get_type_string(part);
+			blkid_loff_t start = blkid_partition_get_start(part);
+			blkid_loff_t size = blkid_partition_get_size(part);
+
+			printf("Partition %d: %s\n", i, block_name);
+			printf("  UUID: %s\n", block_uuid);
+			printf("  Type: %d (%s)\n", block_type, block_type_string);
+			printf("  Start: %lld\n", start);
+			printf("  Size: %lld\n", size);
+		}
+	}
+
+exit:
+	if (disk_fd >= 0) close(disk_fd);
+	if (pr) blkid_free_probe(pr);
+	return ret;
+}
+
+int main(int argc, char *argv[])
+{
+	int ret				  = 0;
+	// char *const ls_args[] = {
+	// 	"/bin/ls",
+	// 	"-lh",
+	// 	".",
+	// 	NULL
+	// };
+	// char buf[100];
+	// ssize_t buflen = sizeof(buf);
+
+	// ret = run_command(buf, &buflen, "/bin/ls", ls_args);
+	// printf("run_command ret: %d\n", ret);
+
+	// if (buflen != 0) {
+	// 	printf("ZZZ: %s", buf);
+	// }
+
+	// return 0;
+
+	uint64_t device_size  = 0;
+	struct disk_info disk = {0};
+	struct args args = {0};
+
+	struct fdisk_context *ctx = NULL;
+	struct fdisk_label *label = NULL;
+
+	if (parse_args(argc, argv, &args) != 0) {
+		fprintf(stderr, "Failed to parse arguments\n");
+		return -1;
+	}
+
 	if (disk_get_size(DISK, &device_size) != 0) ERR_GOTO("Failed to get device size");
 
+	do_blkid(DISK);
+
+	// // Re-probe partitions to ensure changes are recognized
+	// LOG("Probing %s partitions...\n", DISK);
+	// ret = disk_part_probe(DISK);
+	// if (ret != 0) {
+	// 	ERR_GOTO("Failed to probe partitions after changes");
+	// }
+
+
 	fdisk_init_debug(0x0);
+	blkid_init_debug(0xFFFF);
 
 	ctx = fdisk_new_context();
 	if (!ctx) ERR_GOTO("Failed to create fdisk context");
@@ -405,13 +583,19 @@ int main(int argc, char *argv[])
 	int type = fdisk_label_get_type(label);
 	if (type != FDISK_DISKLABEL_DOS) ERR_GOTO("Unsupported partition table type");
 
-	if (disk_read_info(ctx, &disk) != 0) ERR_GOTO("Failed to read disk info");
+	if (disk_read_info(ctx, &disk) != 0) {
+		ERR_GOTO("Failed to read disk info");
+		return -1;
+	}
 
 	disk_display_info(&disk, device_size);
 
-	if (delete_mode) {
+	if (args.flags & FLAG_USERFS_DELETE) {
 		if (disk_delete_userfs_partition(ctx, &disk.partitions[USERFS_PART_NO]) != 0)
 			ERR_GOTO("Failed to delete userfs partition");
+
+		LOG("Userfs (%d) partition deleted successfully, exiting\n", USERFS_PART_NO);
+		exit(EXIT_SUCCESS);
 	} else {
 		if (disk_create_userfs_partition(
 				ctx, label, &disk, &disk.partitions[USERFS_PART_NO]) != 0)
@@ -423,6 +607,20 @@ int main(int argc, char *argv[])
 	if (fdisk_deassign_device(ctx, 0) != 0) ERR_GOTO("Failed to deassign device");
 
 	fdisk_unref_context(ctx);
+
+
+	// Run blkid to check the partition type if it already exists
+	do_blkid(DISK);
+	
+	// sleep(1); // Give some time for the system to process changes
+
+	// // Re-probe partitions to ensure changes are recognized
+	// LOG("Re-probing %s partitions after changes...\n", DISK);
+	// ret = disk_part_probe(DISK);
+	// if (ret != 0) {
+	// 	ERR_GOTO("Failed to probe partitions after changes");
+	// }
+
 	return 0;
 
 exit:
