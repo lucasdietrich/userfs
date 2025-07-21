@@ -1,3 +1,106 @@
+/*
+ * Copyright (c) 2025 Lucas Dietrich <lucas.dietrich.git@proton.me>
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+// clang-format off
+ /*
+ * Userfs Partition Management Tool
+ *
+ * This program manages a userfs partition on /dev/mmcblk0 and sets up
+ * persistent storage with overlayfs for an embedded Linux system.
+ *
+ * MAIN COMMAND FLOW:
+ *
+ * 1. PARSE ARGUMENTS:
+ *    - Parse command line options (-v verbose, -d delete, -f force format, -h help)
+ *
+ * 2. DISK INSPECTION & PARTITION MANAGEMENT:
+ *    - Get disk size using ioctl(BLKGETSIZE64) on /dev/mmcblk0
+ *    - Read existing partition table using libfdisk
+ *    - Analyze current partitions (boot, rootfs, userfs)
+ *
+ *    IF delete flag (-d):
+ *      - Delete userfs partition (partition #2) and exit
+ *    ELSE:
+ *      - Create userfs partition if it doesn't exist using remaining free space
+ *      - Write partition table changes to disk using fdisk_write_disklabel()
+ *
+ * 3. PARTITION TABLE REFRESH:
+ *    - Run `partprobe /dev/mmcblk0` to refresh kernel partition table
+ *
+ * 4. FILESYSTEM PROBING:
+ *    - Probe filesystem on userfs partition (/dev/mmcblk0p3) using libblkid
+ *    - Detect existing filesystem type and UUID
+ *
+ * 5. BTRFS FILESYSTEM CREATION:
+ *    - Skip if already BTRFS and not forced (-f flag)
+ *    - Run `mkfs.btrfs -f /dev/mmcblk0p3` if partition is unformatted or force flag used
+ *    - Create mount point /mnt/userfs
+ *    - Mount BTRFS filesystem on /mnt/userfs
+ *    - Create BTRFS subvolumes:
+ *      * vol-data (for /var and /home overlays)
+ *      * vol-config (for /etc overlay)
+ *
+ * 6. OVERLAYFS SETUP:
+ *    - Unmount existing /var/volatile tmpfs
+ *    - For each mount point (/etc, /var, /home):
+ *      * Create upper and work directories in appropriate BTRFS subvolumes
+ *      * Unmount existing mount if present
+ *      * Mount overlayfs with lowerdir=original, upperdir=persistent, workdir=work
+ *    - Remount /var/volatile as tmpfs with mode 0755
+ *
+ * RESULT:
+ * The program creates a persistent userfs partition with BTRFS and sets up
+ * overlayfs mounts to make /etc, /var, and /home writable and persistent
+ * on what appears to be an embedded Linux system with read-only root filesystem.
+ *
+ * This scripts can be illustrated as follows:
+ * 
+ *     # create a userfs partition at /dev/mmcblk0p3 using fdisk
+ *  
+ *     partprobe /dev/mmcblk0
+ *     /usr/bin/mkfs.btrfs -f /dev/mmcblk0p3
+ *  
+ *     # mount userfs partition
+ *     mkdir -p /mnt/userfs
+ *     mount -t btrfs /dev/mmcblk0p3 /mnt/userfs
+ *  
+ *     # create subvolumes
+ *     if ! btrfs subvolume show /mnt/userfs/vol-data >/dev/null 2>&1; then
+ *        btrfs subvolume create /mnt/userfs/vol-data
+ *     fi
+ *     if ! btrfs subvolume show /mnt/userfs/vol-config >/dev/null 2>&1; then
+ *        btrfs subvolume create /mnt/userfs/vol-config
+ *     fi
+ *  
+ *     # if /var/volatile is already mounted, we need to unmount it first
+ *     if mount | grep /var/volatile > /dev/null; then
+ *        umount /var/volatile
+ *     fi
+ *  
+ *     # create overlayfs for var, etc, and home
+ *     mkdir -p /mnt/userfs/vol-config/etc /mnt/userfs/vol-config/.work.etc
+ *     mount -t overlay overlay \
+ *        -o lowerdir=/etc,upperdir=/mnt/userfs/vol-config/etc,workdir=/mnt/userfs/vol-config/.work.etc \
+ *        /etc
+ *  
+ *     mkdir -p /mnt/userfs/vol-data/var /mnt/userfs/vol-data/.work.var
+ *     mount -t overlay overlay \
+ *        -o lowerdir=/var,upperdir=/mnt/userfs/vol-data/var,workdir=/mnt/userfs/vol-data/.work.var \
+ *        /var
+ *  
+ *     mkdir -p /mnt/userfs/vol-data/home /mnt/userfs/vol-data/.work.home
+ *     mount -t overlay overlay \
+ *        -o lowerdir=/home,upperdir=/mnt/userfs/vol-data/home,workdir=/mnt/userfs/vol-data/.work.home \
+ *        /home
+ *  
+ *     # mount /var/volatile again
+ *     mount -t tmpfs tmpfs /var/volatile
+ */
+// clang-format on
+
 #include "libfdisk/libfdisk.h"
 
 #include <stdbool.h>
@@ -15,10 +118,14 @@
 #include <getopt.h>
 #include <linux/fs.h>
 #include <sys/ioctl.h>
+#include <sys/mount.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #define DISK "/dev/mmcblk0"
+
+#define USERFS_MOUNT_POINT "/mnt/userfs"
 
 #define BOOT_PART_NO   0u
 #define ROOTFS_PART_NO 1u
@@ -36,6 +143,8 @@
 
 #define USERFS_MIN_SIZE_B (1llu * GB)
 #define USERFS_MIN_SIZE_S (USERFS_MIN_SIZE_B / SECTOR_SIZE)
+
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 static int verbose = 0;
 
@@ -64,6 +173,46 @@ struct fs_info {
     enum fs_type type;
     char uuid[37u]; // UUID is 36 characters + null terminator
     char _reversed[3];
+};
+
+#define BTRFS_SV_DATA_INDEX   0
+#define BTRFS_SV_CONFIG_INDEX 1
+
+static const char *btrfs_subvolumes[] = {
+    [BTRFS_SV_DATA_INDEX]   = "vol-data",
+    [BTRFS_SV_CONFIG_INDEX] = "vol-config",
+};
+
+struct overlayfs_mount_point {
+    const char *lowerdir;
+    const char *upper_name;
+    const char *work_name;
+    const char *mount_point;
+    size_t btrfs_sv_index;
+};
+
+static const struct overlayfs_mount_point overlayfs_mount_points[] = {
+    {
+        .lowerdir       = "/etc",
+        .upper_name     = "etc",       // will end up as /mnt/userfs/vol-config/etc
+        .work_name      = ".work.etc", // will end up as /mnt/userfs/vol-config/.work.etc
+        .mount_point    = "/etc",
+        .btrfs_sv_index = BTRFS_SV_CONFIG_INDEX,
+    },
+    {
+        .lowerdir       = "/var",
+        .upper_name     = "var",       // will end up as /mnt/userfs/vol-config/var
+        .work_name      = ".work.var", // will end up as /mnt/userfs/vol-config/.work.var
+        .mount_point    = "/var",
+        .btrfs_sv_index = BTRFS_SV_DATA_INDEX,
+    },
+    {
+        .lowerdir       = "/home",
+        .upper_name     = "home",       // will end up as /mnt/userfs/vol-data/home
+        .work_name      = ".work.home", // will end up as /mnt/userfs/vol-data/.work.home
+        .mount_point    = "/home",
+        .btrfs_sv_index = BTRFS_SV_DATA_INDEX,
+    },
 };
 
 static const char *fs_type_to_string(enum fs_type type)
@@ -116,21 +265,21 @@ static int disk_get_size(const char *device, uint64_t *size)
     fd = open(device, O_RDWR);
     if (fd < 0) {
         perror("open");
-        fprintf(stderr, "Failed to open device");
+        fprintf(stderr, "Failed to open device\n");
         goto exit;
     }
 
     ret = ioctl(fd, BLKGETSIZE64, size);
     if (ret < 0) {
         perror("ioctl BLKGETSIZE64");
-        fprintf(stderr, "Failed to get device size");
+        fprintf(stderr, "Failed to get device size\n");
         goto exit;
     }
 
     ret = close(fd);
     if (ret < 0) {
         perror("close");
-        fprintf(stderr, "Failed to close device");
+        fprintf(stderr, "Failed to close device\n");
         goto exit;
     }
 
@@ -228,7 +377,7 @@ static int disk_create_userfs_partition(struct fdisk_context *ctx,
     }
 
     if (disk->free_sectors < USERFS_MIN_SIZE_S) {
-        fprintf(stderr, "Not enough free space for userfs partition");
+        fprintf(stderr, "Not enough free space for userfs partition\n");
         goto exit;
     }
 
@@ -251,7 +400,7 @@ static int disk_create_userfs_partition(struct fdisk_context *ctx,
 
     part = fdisk_new_partition();
     if (!part) {
-        fprintf(stderr, "Failed to create new partition");
+        fprintf(stderr, "Failed to create new partition\n");
         goto exit;
     }
 
@@ -261,7 +410,7 @@ static int disk_create_userfs_partition(struct fdisk_context *ctx,
 
     pt = fdisk_label_get_parttype_from_code(label, USERFS_PART_CODE);
     if (!pt) {
-        fprintf(stderr, "Failed to get partition type");
+        fprintf(stderr, "Failed to get partition type\n");
         goto exit;
     }
 
@@ -270,13 +419,13 @@ static int disk_create_userfs_partition(struct fdisk_context *ctx,
     size_t cur_partno = (size_t)-1;
     ret               = fdisk_add_partition(ctx, part, &cur_partno);
     if (ret != 0) {
-        fprintf(stderr, "Failed to add partition");
+        fprintf(stderr, "Failed to add partition\n");
         goto exit;
     }
 
     ret = fdisk_write_disklabel(ctx);
     if (ret != 0) {
-        fprintf(stderr, "Failed to write disk label");
+        fprintf(stderr, "Failed to write disk label\n");
         goto exit;
     }
 
@@ -299,6 +448,7 @@ static void print_usage(const char *program_name)
     printf("Options:\n");
     printf("  -d    Delete partition %u (userfs) if it exists\n", USERFS_PART_NO);
     printf("  -f	Force mkfs.btrfs even if already initialized\n");
+    printf("  -o    Skip overlayfs setup (useful for debugging)\n");
     printf("  -v    Enable verbose output\n");
     printf("  -h    Show this help message\n");
     printf("  (no args) Create partition %u (userfs) if it doesn't exist\n",
@@ -412,6 +562,33 @@ cleanup:
     return ret;
 }
 
+static int create_directory(const char *dir)
+{
+    struct stat sb;
+
+    if (stat(dir, &sb) == 0) {
+        if (S_ISDIR(sb.st_mode)) {
+            return 0;
+        } else {
+            fprintf(stderr, "Path exists but is not a directory: %s\n", dir);
+            return -1;
+        }
+    }
+
+    if (errno != ENOENT) {
+        perror("stat");
+        return -1;
+    }
+
+    // Directory does not exist, try to create it
+    if (mkdir(dir, 0755) != 0) {
+        perror("mkdir");
+        return -1;
+    }
+
+    return 0;
+}
+
 static int fs_probe(const char *part_device, struct fs_info *info)
 {
     int ret        = -1;
@@ -419,7 +596,7 @@ static int fs_probe(const char *part_device, struct fs_info *info)
     blkid_probe pr = NULL;
 
     if (!part_device || !info) {
-        fprintf(stderr, "Invalid arguments for fs_probe");
+        fprintf(stderr, "Invalid arguments for fs_probe\n");
         goto exit;
     }
 
@@ -428,14 +605,14 @@ static int fs_probe(const char *part_device, struct fs_info *info)
 
     pr = blkid_new_probe();
     if (!pr) {
-        fprintf(stderr, "Failed to create blkid probe");
+        fprintf(stderr, "Failed to create blkid probe\n");
         goto exit;
     }
 
     fd = open(part_device, 0); // Read-only mode
     if (fd < 0) {
         perror("open");
-        fprintf(stderr, "Failed to open partition device");
+        fprintf(stderr, "Failed to open partition device\n");
         goto exit;
     }
 
@@ -487,7 +664,7 @@ static int fs_probe(const char *part_device, struct fs_info *info)
     if (close(fd) < 0) {
         perror("close");
         fd = -1; // Prevent double close in exit block
-        fprintf(stderr, "Failed to close partition device");
+        fprintf(stderr, "Failed to close partition device\n");
         goto exit;
     }
     fd = -1; // Mark as closed
@@ -505,6 +682,7 @@ exit:
 
 #define FLAG_USERFS_DELETE       (1 << 1u)
 #define FLAG_USERFS_FORCE_FORMAT (1 << 2u)
+#define FLAG_USERFS_SKIP_OVERLAYS (1 << 3u)
 
 struct args {
     uint32_t flags; // Bitmask for flags
@@ -519,7 +697,7 @@ static int parse_args(int argc, char *argv[], struct args *args)
         return -1;
     }
 
-    while ((opt = getopt(argc, argv, "hdfv")) != -1) {
+    while ((opt = getopt(argc, argv, "hdfvo")) != -1) {
         switch (opt) {
         case 'h':
             print_usage(argv[0]);
@@ -529,6 +707,9 @@ static int parse_args(int argc, char *argv[], struct args *args)
             break;
         case 'f':
             args->flags |= FLAG_USERFS_FORCE_FORMAT;
+            break;
+        case 'o':
+            args->flags |= FLAG_USERFS_SKIP_OVERLAYS;
             break;
         case 'v':
             verbose = 1;
@@ -547,7 +728,7 @@ static int parse_args(int argc, char *argv[], struct args *args)
     return 0;
 }
 
-static int step0_create_userfs_partition(struct args *args, struct disk_info *disk)
+static int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
 {
     int ret                   = -1;
     uint64_t device_size      = 0;
@@ -555,7 +736,7 @@ static int step0_create_userfs_partition(struct args *args, struct disk_info *di
     struct fdisk_label *label = NULL;
 
     if (disk_get_size(DISK, &device_size) != 0) {
-        fprintf(stderr, "Failed to get device size");
+        fprintf(stderr, "Failed to get device size\n");
         goto exit;
     }
 
@@ -564,30 +745,30 @@ static int step0_create_userfs_partition(struct args *args, struct disk_info *di
 
     ctx = fdisk_new_context();
     if (!ctx) {
-        fprintf(stderr, "Failed to create fdisk context");
+        fprintf(stderr, "Failed to create fdisk context\n");
         goto exit;
     }
 
     if (fdisk_assign_device(ctx, DISK, RO_ENABLED) < 0) {
-        fprintf(stderr, "Failed to assign device");
+        fprintf(stderr, "Failed to assign device\n");
         goto exit;
     }
 
     label = fdisk_get_label(ctx, "dos");
     if (!label) {
-        fprintf(stderr, "Failed to get label");
+        fprintf(stderr, "Failed to get label\n");
         goto exit;
     }
 
     int type = fdisk_label_get_type(label);
     if (type != FDISK_DISKLABEL_DOS) {
-        fprintf(stderr, "Unsupported partition table type");
+        fprintf(stderr, "Unsupported partition table type\n");
         goto exit;
     }
 
     ret = disk_read_info(ctx, disk);
     if (ret != 0) {
-        fprintf(stderr, "Failed to read disk info");
+        fprintf(stderr, "Failed to read disk info\n");
         goto exit;
     }
 
@@ -599,14 +780,14 @@ static int step0_create_userfs_partition(struct args *args, struct disk_info *di
     if (args->flags & FLAG_USERFS_DELETE) {
         ret = disk_delete_userfs_partition(ctx, userfs_part);
         if (ret != 0) {
-            fprintf(stderr, "Failed to delete userfs partition");
+            fprintf(stderr, "Failed to delete userfs partition\n");
             goto exit;
         }
 
         // Success - cleanup and return success
         ret = fdisk_deassign_device(ctx, 0);
         if (ret != 0) {
-            fprintf(stderr, "Failed to deassign device");
+            fprintf(stderr, "Failed to deassign device\n");
             goto exit;
         }
         fdisk_unref_context(ctx);
@@ -618,14 +799,14 @@ static int step0_create_userfs_partition(struct args *args, struct disk_info *di
     // otherwise try to create the userfs partition if it doesn't exist
     ret = disk_create_userfs_partition(ctx, label, disk, userfs_part);
     if (ret != 0) {
-        fprintf(stderr, "Failed to create userfs partition");
+        fprintf(stderr, "Failed to create userfs partition\n");
         goto exit;
     }
 
     // Do sync
     ret = fdisk_deassign_device(ctx, 0);
     if (ret != 0) {
-        fprintf(stderr, "Failed to deassign device");
+        fprintf(stderr, "Failed to deassign device\n");
         goto exit;
     }
     fdisk_unref_context(ctx);
@@ -638,7 +819,32 @@ exit:
     return ret;
 }
 
-static int step1_create_btrfs_filesystem(struct args *args, struct part_info *userfs_part)
+static int disk_partprobe(const char *device)
+{
+    int ret;
+
+    // FIXME: try another method to partprobe, the commented code below exit with error:
+    // BLKRRPART: Device or resource busy
+
+    // int fd = open(DISK, O_RDONLY);
+    // if (fd >= 0) {
+    //     ret = ioctl(fd, BLKRRPART); // Re-read partition table
+    //     printf("BLKRRPART returned: %d %s\n", ret, strerror(errno));
+    //     close(fd);
+    //     sleep(1); // Wait for /dev/mmcblk0pX to appear
+    // }
+
+    char *const partprobe_args[] = {
+        "partprobe",
+        (char *)device,
+        NULL,
+    };
+    ret = command_run(NULL, NULL, "partprobe", partprobe_args);
+
+    return ret;
+}
+
+static int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_part)
 {
     int ret = -1;
 
@@ -685,25 +891,187 @@ static int step1_create_btrfs_filesystem(struct args *args, struct part_info *us
         break;
     }
 
+    if (!do_create_btrfs) {
+        LOG("Userfs partition (%s) is already BTRFS, skipping creation\n",
+            userfs_part_device);
+        return 0; // Nothing to do
+    }
+
     // If the userfs partition is not BTRFS, create it
-    if (do_create_btrfs) {
-        LOG("Creating BTRFS filesystem on %s\n", userfs_part_device);
+    LOG("Creating BTRFS filesystem on %s\n", userfs_part_device);
 
-        const char *const mkfs_args[] = {"mkfs.btrfs",
-                                         "-f", // Force creation
-                                         userfs_part_device,
-                                         NULL};
+    const char *const mkfs_args[] = {"mkfs.btrfs",
+                                     "-f", // Force creation
+                                     userfs_part_device,
+                                     NULL};
 
-        command_display(mkfs_args[0], (char *const *)mkfs_args);
-        ret = command_run(NULL, NULL, mkfs_args[0], (char *const *)mkfs_args);
-        LOG("mkfs.btrfs returned: %d\n", ret);
+    command_display(mkfs_args[0], (char *const *)mkfs_args);
+    ret = command_run(NULL, NULL, mkfs_args[0], (char *const *)mkfs_args);
+    LOG("mkfs.btrfs returned: %d\n", ret);
+    if (ret < 0) {
+        fprintf(stderr, "Failed to create BTRFS filesystem: %s\n", strerror(errno));
+        goto exit;
+    }
+
+    LOG("BTRFS filesystem created successfully on %s\n", userfs_part_device);
+
+    // Create the mount point if it doesn't exist
+    ret = create_directory(USERFS_MOUNT_POINT);
+    if (ret != 0) {
+        fprintf(stderr,
+                "Failed to create mount point %s: %s\n",
+                USERFS_MOUNT_POINT,
+                strerror(errno));
+        goto exit;
+    }
+
+    // Mount the btrfs filesystem
+    ret = mount(userfs_part_device, USERFS_MOUNT_POINT, "btrfs", 0, NULL);
+    if (ret < 0) {
+        fprintf(stderr,
+                "Failed to mount BTRFS filesystem on %s: %s\n",
+                USERFS_MOUNT_POINT,
+                strerror(errno));
+        goto exit;
+    }
+
+    // Create subvolumes
+    // FIXME use the btrfs library instead of running commands
+
+    char sv_name[PATH_MAX];
+    const char *btrfs_create_subvolumes[] = {
+        "btrfs",
+        "subvolume",
+        "create",
+        sv_name, // Placeholder for subvolume name
+        NULL,    // End of arguments
+    };
+
+    for (size_t sv = 0u; sv < ARRAY_SIZE(btrfs_subvolumes); sv++) {
+        snprintf(
+            sv_name, sizeof(sv_name), "%s/%s", USERFS_MOUNT_POINT, btrfs_subvolumes[sv]);
+
+        command_display(btrfs_create_subvolumes[0],
+                        (char *const *)btrfs_create_subvolumes);
+        ret = command_run(NULL,
+                          NULL,
+                          btrfs_create_subvolumes[0],
+                          (char *const *)btrfs_create_subvolumes);
+        LOG("btrfs subvolume create returned: %d\n", ret);
         if (ret < 0) {
-            fprintf(stderr, "Failed to create BTRFS filesystem: %s\n", strerror(errno));
+            fprintf(stderr,
+                    "Failed to create BTRFS subvolume %s: %s\n",
+                    btrfs_create_subvolumes[3],
+                    strerror(errno));
+            goto exit;
+        }
+    }
+
+    return 0;
+
+exit:
+    return ret;
+}
+
+static int step3_create_overlayfs(struct args *args)
+{
+    int ret;
+
+    (void)args; // Unused for now
+
+    // First we need to umount /var/volatile tmpfs if it is already mounted
+    ret = umount2("/var/volatile", MNT_DETACH);
+    if (ret < 0) {
+        fprintf(stderr,
+                "Failed to unmount /var/volatile: %s, continuing anyway\n",
+                strerror(errno));
+    }
+
+    // Create overlayfs directories
+    char upper_dir[PATH_MAX];
+    char work_dir[PATH_MAX];
+
+    for (size_t i = 0; i < ARRAY_SIZE(overlayfs_mount_points); i++) {
+        const struct overlayfs_mount_point *mp = &overlayfs_mount_points[i];
+        const char *btrfs_sv_name              = btrfs_subvolumes[mp->btrfs_sv_index];
+
+        // Create upper and work directories paths
+        snprintf(upper_dir,
+                 sizeof(upper_dir),
+                 "%s/%s/%s",
+                 USERFS_MOUNT_POINT,
+                 btrfs_sv_name,
+                 mp->upper_name);
+        snprintf(work_dir,
+                 sizeof(work_dir),
+                 "%s/%s/%s",
+                 USERFS_MOUNT_POINT,
+                 btrfs_sv_name,
+                 mp->work_name);
+
+        // Create directories if they don't exist
+        ret = create_directory(upper_dir);
+        if (ret != 0) {
+            fprintf(stderr,
+                    "Failed to create upper directory %s: %s\n",
+                    upper_dir,
+                    strerror(errno));
             goto exit;
         }
 
-        LOG("BTRFS filesystem created successfully on %s\n", userfs_part_device);
+        ret = create_directory(work_dir);
+        if (ret != 0) {
+            fprintf(stderr,
+                    "Failed to create work directory %s: %s\n",
+                    work_dir,
+                    strerror(errno));
+            goto exit;
+        }
+
+        // Ensure the mount are not already mounted
+        ret = umount2(mp->mount_point, MNT_DETACH);
+        if (ret < 0 && errno != EINVAL) { // EINVAL means not
+            // mounted, which is fine
+            fprintf(stderr,
+                    "Failed to unmount %s: %s, continuing anyway\n",
+                    mp->mount_point,
+                    strerror(errno));
+        }
+
+        // Now mount the overlayfs
+        char mount_options[PATH_MAX + PATH_MAX + PATH_MAX +
+                           64]; // Enough space for options
+        snprintf(mount_options,
+                 sizeof(mount_options),
+                 "lowerdir=%s,upperdir=%s,workdir=%s",
+                 mp->lowerdir,
+                 upper_dir,
+                 work_dir);
+
+        printf("Mounting overlayfs on %s with options: %s\n",
+               mp->mount_point,
+               mount_options);
+
+        ret = mount("overlay", mp->mount_point, "overlay", 0, mount_options);
+        if (ret < 0) {
+            fprintf(stderr,
+                    "Failed to mount overlayfs on %s: %s\n",
+                    mp->mount_point,
+                    strerror(errno));
+            goto exit;
+        }
     }
+
+    // Finally mount /var/volatile again
+    printf("Mounting tmpfs on /var/volatile with mode 0755\n");
+
+    ret = mount("tmpfs", "/var/volatile", "tmpfs", 0, "mode=0755");
+    if (ret < 0) {
+        fprintf(stderr, "Failed to mount /var/volatile: %s\n", strerror(errno));
+        goto exit;
+    }
+
+    return 0;
 
 exit:
     return ret;
@@ -717,12 +1085,12 @@ int main(int argc, char *argv[])
 
     ret = parse_args(argc, argv, &args);
     if (ret != 0) {
-        fprintf(stderr, "Failed to parse arguments");
+        fprintf(stderr, "Failed to parse arguments\n");
         goto exit;
     }
 
-    // STEP0: Inspect the disk and create userfs partition if it doesn't exist
-    ret = step0_create_userfs_partition(&args, &disk);
+    // STEP1: Inspect the disk and create userfs partition if it doesn't exist
+    ret = step1_create_userfs_partition(&args, &disk);
     if (ret != 0) {
         fprintf(stderr, "Failed to create userfs partition: %s\n", strerror(errno));
         goto exit;
@@ -735,10 +1103,30 @@ int main(int argc, char *argv[])
     ASSERT(userfs_part->partno == USERFS_PART_NO,
            "Userfs partition number should match expected value");
 
-    // STEP1: Create BTRFS filesystem on the userfs partition
-    ret = step1_create_btrfs_filesystem(&args, userfs_part);
+    // parprob
+    ret = disk_partprobe(DISK);
+    if (ret < 0) {
+        fprintf(stderr, "Failed to partprobe: %s\n", strerror(errno));
+        goto exit;
+    }
+
+    // STEP2: Create BTRFS filesystem on the userfs partition
+    ret = step2_create_btrfs_filesystem(&args, userfs_part);
     if (ret != 0) {
         fprintf(stderr, "Failed to create BTRFS filesystem: %s\n", strerror(errno));
+        goto exit;
+    }
+
+    if (args.flags & FLAG_USERFS_SKIP_OVERLAYS) {
+        printf("Skipping overlayfs setup as per user request\n");
+        disk_free_info(&disk);
+        return 0; // Nothing more to do
+    }
+
+    // STEP3: Create overlayfs for /etc, /var and /home
+    ret = step3_create_overlayfs(&args);
+    if (ret != 0) {
+        fprintf(stderr, "Failed to create overlayfs: %s\n", strerror(errno));
         goto exit;
     }
 
