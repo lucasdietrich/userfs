@@ -31,6 +31,9 @@ build: setup
 deploy: build
   scp {{exe}} {{target}}:~
 
+replace: build
+  scp {{exe}} {{target}}:/usr/bin/userfs
+
 
 clean:
     rm -rf {{builddir}}

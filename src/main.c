@@ -360,6 +360,19 @@ static void disk_display_info(const struct disk_info *disk, uint64_t device_size
     }
 }
 
+/**
+ * Create a userfs partition on the disk.
+ *
+ * This function creates a userfs partition using the remaining free space
+ * on the disk. It assumes that the disk partition has been initialized and has enough
+ * free space for the userfs partition.
+ *
+ * @param ctx The fdisk context.
+ * @param label The fdisk label.
+ * @param disk The disk information structure.
+ * @param pinfo The partition information structure to fill in.
+ * @return 0 on success, -1 on failure, 0 if partition was created, 1 if partition already exists.
+ */
 static int disk_create_userfs_partition(struct fdisk_context *ctx,
                                         struct fdisk_label *label,
                                         struct disk_info *disk,
@@ -373,7 +386,7 @@ static int disk_create_userfs_partition(struct fdisk_context *ctx,
 
     if (pinfo->used) {
         fprintf(stderr, "Partition %zu is already defined\n", pinfo->index);
-        return 0;
+        return 1;
     }
 
     if (disk->free_sectors < USERFS_MIN_SIZE_S) {
@@ -447,7 +460,8 @@ static void print_usage(const char *program_name)
     printf("Manage userfs partition on %s\n\n", DISK);
     printf("Options:\n");
     printf("  -d    Delete partition %u (userfs) if it exists\n", USERFS_PART_NO);
-    printf("  -f	Force mkfs.btrfs even if already initialized\n");
+    printf("  -t    Trust existing userfs filesystem (if valid) after partition creation (first boot)\n");
+    printf("  -f	Force mkfs.btrfs even if already initialized (mutually exclusive with -t)\n");
     printf("  -o    Skip overlayfs setup (useful for debugging)\n");
     printf("  -v    Enable verbose output\n");
     printf("  -h    Show this help message\n");
@@ -566,8 +580,11 @@ static int create_directory(const char *dir)
 {
     struct stat sb;
 
+    LOG("Creating directory: %s\n", dir);
+
     if (stat(dir, &sb) == 0) {
         if (S_ISDIR(sb.st_mode)) {
+            LOG("Directory already exists: %s\n", dir);
             return 0;
         } else {
             fprintf(stderr, "Path exists but is not a directory: %s\n", dir);
@@ -576,12 +593,14 @@ static int create_directory(const char *dir)
     }
 
     if (errno != ENOENT) {
+        fprintf(stderr, "Failed to check directory existence: %s\n", dir);
         perror("stat");
         return -1;
     }
 
     // Directory does not exist, try to create it
     if (mkdir(dir, 0755) != 0) {
+        fprintf(stderr, "Failed to create directory: %s\n", dir);
         perror("mkdir");
         return -1;
     }
@@ -680,9 +699,10 @@ exit:
     return ret;
 }
 
-#define FLAG_USERFS_DELETE       (1 << 1u)
-#define FLAG_USERFS_FORCE_FORMAT (1 << 2u)
-#define FLAG_USERFS_SKIP_OVERLAYS (1 << 3u)
+#define FLAG_USERFS_DELETE         (1 << 1u)
+#define FLAG_USERFS_FORCE_FORMAT   (1 << 2u)
+#define FLAG_USERFS_TRUST_RESIDENT (1 << 3u)
+#define FLAG_USERFS_SKIP_OVERLAYS  (1 << 4u)
 
 struct args {
     uint32_t flags; // Bitmask for flags
@@ -697,7 +717,7 @@ static int parse_args(int argc, char *argv[], struct args *args)
         return -1;
     }
 
-    while ((opt = getopt(argc, argv, "hdfvo")) != -1) {
+    while ((opt = getopt(argc, argv, "hdfvot")) != -1) {
         switch (opt) {
         case 'h':
             print_usage(argv[0]);
@@ -707,6 +727,9 @@ static int parse_args(int argc, char *argv[], struct args *args)
             break;
         case 'f':
             args->flags |= FLAG_USERFS_FORCE_FORMAT;
+            break;
+        case 't':
+            args->flags |= FLAG_USERFS_TRUST_RESIDENT;
             break;
         case 'o':
             args->flags |= FLAG_USERFS_SKIP_OVERLAYS;
@@ -798,7 +821,20 @@ static int step1_create_userfs_partition(struct args *args, struct disk_info *di
 
     // otherwise try to create the userfs partition if it doesn't exist
     ret = disk_create_userfs_partition(ctx, label, disk, userfs_part);
-    if (ret != 0) {
+    if (ret == 0) {
+        // FIRST BOOT: Userfs partition created successfully:
+        // we prefer to reformat the userfs partition to BTRFS even if it exists
+        // from a previous installation, unless the user asked to trust it
+        // with the -t flag.
+        if (args->flags & FLAG_USERFS_TRUST_RESIDENT) {
+            printf("Trusting existing userfs partition without formatting\n");
+        } else {
+            args->flags |= FLAG_USERFS_FORCE_FORMAT;
+        }
+    } else if (ret == 1) {
+        // NOT FIRST BOOT: Userfs partition already exists:
+        // we do want to keep the existing userfs partition if it exists
+    } else {
         fprintf(stderr, "Failed to create userfs partition\n");
         goto exit;
     }
@@ -927,7 +963,7 @@ static int step2_create_btrfs_filesystem(struct args *args, struct part_info *us
 
     // Mount the btrfs filesystem
     ret = mount(userfs_part_device, USERFS_MOUNT_POINT, "btrfs", 0, NULL);
-    if (ret < 0) {
+    if (ret != 0) {
         fprintf(stderr,
                 "Failed to mount BTRFS filesystem on %s: %s\n",
                 USERFS_MOUNT_POINT,
@@ -1009,6 +1045,8 @@ static int step3_create_overlayfs(struct args *args)
                  btrfs_sv_name,
                  mp->work_name);
 
+        LOG("Creating overlayfs directories: upper=%s, work=%s\n", upper_dir, work_dir);
+
         // Create directories if they don't exist
         ret = create_directory(upper_dir);
         if (ret != 0) {
@@ -1027,6 +1065,8 @@ static int step3_create_overlayfs(struct args *args)
                     strerror(errno));
             goto exit;
         }
+
+        LOG("Creating overlayfs mount point: %s\n", mp->mount_point);
 
         // Ensure the mount are not already mounted
         ret = umount2(mp->mount_point, MNT_DETACH);
