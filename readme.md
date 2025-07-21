@@ -8,3 +8,7 @@
 ## Remote debug:
 
 - Run `gdbserver :1234 ./userfs`
+
+## Tips
+
+Wipe a partition with command `wipefs --all /dev/mmcblk0p3` (replace with your partition).
