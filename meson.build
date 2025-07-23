@@ -19,6 +19,8 @@ if get_option('partition_table') == 'dos'
   add_global_arguments('-DUSERFS_PARTITION_TABLE_DOS', language: ['cpp', 'c'])
 endif
 
+add_global_arguments('-DUSERFS_PART_NO=' + get_option('userfs_partno').to_string(), language: ['cpp', 'c'])
+
 dependencies = [
   dependency('fdisk'),
   dependency('blkid'),

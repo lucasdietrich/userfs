@@ -19,7 +19,7 @@ target := "rpi3"
 # Setup, runs only if builddir or ninja file is missing
 setup:
   if [ ! -f {{builddir}}/build.ninja ]; then \
-    meson {{builddir}}; \
+    meson {{builddir}} -Duserfs_partno=3; \
   fi
 
 reconfigure:

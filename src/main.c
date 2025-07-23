@@ -146,7 +146,9 @@
 
 #define BOOT_PART_NO   0u
 #define ROOTFS_PART_NO 1u
+#ifndef USERFS_PART_NO
 #define USERFS_PART_NO 2u
+#endif /* USERFS_PART_NO */
 
 // MBR DOS "Linux"
 #define USERFS_PART_CODE 0x83
@@ -738,7 +740,7 @@ static int parse_args(int argc, char *argv[], struct args *args)
         switch (opt) {
         case 'h':
             print_usage(argv[0]);
-            return 0;
+            exit(EXIT_SUCCESS);
         case 'd':
             args->flags |= FLAG_USERFS_DELETE;
             break;

@@ -1,3 +1,4 @@
 option('partition_table', type: 'combo', choices: ['dos'], value: 'dos',
   description: 'Partition table type to use for the disk image')
-
+option('userfs_partno', type: 'integer', value: 2,
+  description: 'Partition number for the userfs partition in the disk image')
