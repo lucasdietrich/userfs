@@ -20,6 +20,9 @@ if get_option('partition_table') == 'dos'
 endif
 
 add_global_arguments('-DUSERFS_PART_NO=' + get_option('userfs_partno').to_string(), language: ['cpp', 'c'])
+if get_option('overlay_opt')
+  add_global_arguments('-DUSERFS_OVERLAY_OPT', language: ['cpp', 'c'])
+endif
 
 dependencies = [
   dependency('fdisk'),

@@ -232,6 +232,15 @@ static const struct overlayfs_mount_point overlayfs_mount_points[] = {
         .mount_point    = "/home",
         .btrfs_sv_index = BTRFS_SV_DATA_INDEX,
     },
+#if defined(USERFS_OVERLAY_OPT)
+    {
+        .lowerdir       = "/opt",
+        .upper_name     = "opt",       // will end up as /mnt/userfs/vol-data/opt
+        .work_name      = ".work.opt", // will end up as /mnt/userfs/vol-data/.work.opt
+        .mount_point    = "/opt",
+        .btrfs_sv_index = BTRFS_SV_DATA_INDEX,
+    },
+#endif /* USERFS_OVERLAY_OPT */
 };
 
 static const char *fs_type_to_string(enum fs_type type)
