@@ -352,7 +352,7 @@ static int disk_read_info(struct fdisk_context *ctx, struct disk_info *disk)
 
 static void disk_display_info(const struct disk_info *disk, uint64_t device_size)
 {
-    LOG("Device size: %lu bytes (%lu MB)\n", device_size, device_size / MB);
+    LOG("Device size: %llu bytes (%llu MB)\n", device_size, device_size / MB);
     LOG("\tsectors: %llu\n", (unsigned long long)disk->total_sectors);
     LOG("\tpartitions count: %zu\n", disk->partition_count);
     LOG("\tfree space at the end: %zu sectors (%zu MB)\n",
@@ -369,7 +369,7 @@ static void disk_display_info(const struct disk_info *disk, uint64_t device_size
 
         uint64_t approx_size_mb = pinfo->size * SECTOR_SIZE / MB;
 
-        LOG("[%zu] partno: %lu start: %llu end: %llu size: %llu (%llu MB)\n",
+        LOG("[%zu] partno: %u start: %llu end: %llu size: %llu (%llu MB)\n",
             n,
             pinfo->partno,
             (unsigned long long)pinfo->start,
