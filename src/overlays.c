@@ -139,6 +139,16 @@ int step3_create_overlayfs(struct args *args)
                mp->mount_point,
                mount_options);
 
+        /* Make sure the mount point exist by creating it */
+        ret = create_directory(mp->mount_point);
+        if (ret != 0) {
+            fprintf(stderr,
+                    "Failed to create mount point %s: %s\n",
+                    mp->mount_point,
+                    strerror(errno));
+            goto exit;
+        }
+
         ret = mount("overlay", mp->mount_point, "overlay", 0, mount_options);
         if (ret < 0) {
             fprintf(stderr,
