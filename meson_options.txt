@@ -1,6 +1,10 @@
-option('partition_table', type: 'combo', choices: ['dos'], value: 'dos',
+option('partition_table', type: 'combo', choices: ['dos', 'gpt'], value: 'dos',
   description: 'Partition table type to use for the disk image')
-option('userfs_partno', type: 'integer', value: 2,
-  description: 'Partition number for the userfs partition in the disk image')
+option('userfs_partno', type: 'combo', choices: ['2', '3', '5'], value: '3',
+  description: 'Partition number for the userfs partition in the disk image (starting from 0)')
 option('overlay_opt', type: 'boolean', value: false,
   description: 'Create overlayfs mount points for /opt')
+option('block_device_type', type: 'combo', choices: ['disk', 'mmc'], value: 'mmc',
+  description: 'Block device type to use for the disk image')
+option('block_device_name', type: 'string', value: '/dev/mmcblk0',
+  description: 'Block device name to use for the disk image')

@@ -19,7 +19,7 @@ target := "rpi3"
 # Setup, runs only if builddir or ninja file is missing
 setup:
   if [ ! -f {{builddir}}/build.ninja ]; then \
-    meson {{builddir}} -Duserfs_partno=3; \
+    meson {{builddir}} --buildtype=debug -Duserfs_partno=5 -Dblock_device_type=disk -Dblock_device_name=/dev/sdd; \
   fi
 
 reconfigure:
