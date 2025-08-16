@@ -25,6 +25,7 @@ enum fs_type {
     FS_TYPE_UNKNOWN = 0,
     FS_TYPE_BTRFS   = 1,
     FS_TYPE_EXT4    = 2,
+    FS_TYPE_SWAP    = 3,
 };
 
 struct fs_info {
@@ -65,5 +66,7 @@ struct disk_info {
 int disk_partprobe(const char *device);
 
 void disk_clear_info(struct disk_info *disk);
+
+ssize_t disk_part_build_path(char *buf, size_t buf_len, size_t partno);
 
 #endif /* USERFS_DISK_H */

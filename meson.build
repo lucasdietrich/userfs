@@ -44,10 +44,12 @@ dependencies = [
 
 sources = [
   'src/main.c',
+  'src/fs.c',
+  'src/utils.c',
   'src/overlays.c',
   'src/btrfs.c',
-  'src/utils.c',
   'src/disk.c',
+  'src/swap.c',
 ]
 
 include_directories = [

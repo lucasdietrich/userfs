@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
- 
+
 // clang-format off
  /*
  * Userfs Partition Management Tool
@@ -129,9 +129,18 @@
 #include "disk.h"
 #include "btrfs.h"
 #include "utils.h"
+#include "fs.h"
 
 #ifndef DISK
 #define DISK "/dev/mmcblk0"
+#endif
+
+#if defined(USERFS_BLOCK_DEVICE_TYPE_MMC)
+#define DISK_PART_FMT "%sp%zu"
+#elif defined(USERFS_BLOCK_DEVICE_TYPE_DISK)
+#define DISK_PART_FMT "%s%zu"
+#else
+#error "Unsupported block device type"
 #endif
 
 #define USERFS_MOUNT_POINT "/mnt/userfs"
@@ -151,6 +160,7 @@ extern int verbose;
 
 struct args {
     uint32_t flags; // Bitmask for flags
+    int swap_partno; // Partition number for swap partition, -1 if not set
 };
 
 #define LOG(fmt, ...)                                                                    \
@@ -176,5 +186,6 @@ int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_pa
 
 int step3_create_overlayfs(struct args *args);
 
+int step4_format_swap_partition(struct args *args, struct disk_info *disk);
 
 #endif /* USERFS_H */

@@ -583,3 +583,8 @@ int disk_partprobe(const char *device)
 
     return ret;
 }
+
+ssize_t disk_part_build_path(char *buf, size_t buf_len, size_t partno)
+{
+    return snprintf(buf, buf_len, DISK_PART_FMT, DISK, partno + 1u);
+}

@@ -20,14 +20,6 @@
 #include <sys/mount.h>
 #include <unistd.h>
 
-#if defined(USERFS_BLOCK_DEVICE_TYPE_MMC)
-#define DISK_PART_FMT "%sp%zu"
-#elif defined(USERFS_BLOCK_DEVICE_TYPE_DISK)
-#define DISK_PART_FMT "%s%zu"
-#else
-#error "Unsupported block device type"
-#endif
-
 static const char *btrfs_subvolumes[] = {
     [BTRFS_SV_DATA_INDEX]   = "vol-data",
     [BTRFS_SV_CONFIG_INDEX] = "vol-config",
@@ -41,119 +33,6 @@ const char *btrfs_get_volume(size_t sv_index)
     return btrfs_subvolumes[sv_index];
 }
 
-static int fs_probe(const char *part_device, struct fs_info *info)
-{
-    int ret        = -1;
-    int fd         = -1;
-    blkid_probe pr = NULL;
-
-    if (!part_device || !info) {
-        fprintf(stderr, "Invalid arguments for fs_probe\n");
-        goto exit;
-    }
-
-    // Clear the fs_info structure
-    memset(info, 0, sizeof(struct fs_info));
-
-    pr = blkid_new_probe();
-    if (!pr) {
-        fprintf(stderr, "Failed to create blkid probe\n");
-        goto exit;
-    }
-
-    fd = open(part_device, 0); // Read-only mode
-    if (fd < 0) {
-        perror("open");
-        fprintf(stderr, "Failed to open partition device\n");
-        goto exit;
-    }
-
-    // offset = 0, size = 0 (whole device)
-    ret = blkid_probe_set_device(pr, fd, 0, 0);
-    if (ret < 0) {
-        fprintf(stderr, "Failed to set device for blkid probe: %s\n", strerror(errno));
-        goto exit;
-    }
-
-    // All code before this point could be replace with
-    // blkid_new_probe_from_filename(part_device);
-
-    blkid_probe_enable_partitions(pr, true);
-    blkid_probe_enable_superblocks(pr, true);
-    blkid_probe_set_superblocks_flags(
-        pr, BLKID_SUBLKS_UUID | BLKID_SUBLKS_LABEL | BLKID_SUBLKS_TYPE);
-
-    ret = blkid_do_safeprobe(pr);
-    if (ret < 0) {
-        fprintf(stderr, "blkid_do_safeprobe failed: %s\n", strerror(errno));
-        goto exit;
-    }
-
-    const char *fs_uuid = NULL;
-    const char *type    = NULL;
-    blkid_probe_lookup_value(pr, "UUID", &fs_uuid, NULL);
-    blkid_probe_lookup_value(pr, "TYPE", &type, NULL);
-
-    LOG("Partition %s:\n", part_device);
-    LOG("  Filesystem UUID: %s\n", fs_uuid ? fs_uuid : "Not set");
-    LOG("  Type: %s\n", type ? type : "unknown");
-
-    if (fs_uuid) {
-        strncpy(info->uuid, fs_uuid, sizeof(info->uuid) - 1);
-        info->uuid[sizeof(info->uuid) - 1] = '\0'; // Ensure null termination
-    }
-
-    if (type) {
-        if (strcmp(type, "btrfs") == 0) {
-            info->type = FS_TYPE_BTRFS;
-        } else if (strcmp(type, "ext4") == 0) {
-            info->type = FS_TYPE_EXT4;
-        } else {
-            info->type = FS_TYPE_UNKNOWN;
-        }
-    }
-
-    if (close(fd) < 0) {
-        perror("close");
-        fd = -1; // Prevent double close in exit block
-        fprintf(stderr, "Failed to close partition device\n");
-        goto exit;
-    }
-    fd = -1; // Mark as closed
-
-    blkid_free_probe(pr);
-    pr = NULL;
-
-    return 0;
-
-exit:
-    if (pr) blkid_free_probe(pr);
-    if (fd >= 0) close(fd);
-    return ret;
-}
-
-static const char *fs_type_to_string(enum fs_type type)
-{
-    switch (type) {
-    case FS_TYPE_BTRFS:
-        return "btrfs";
-    case FS_TYPE_EXT4:
-        return "ext4";
-    case FS_TYPE_UNKNOWN:
-    default:
-        return "unknown";
-    }
-}
-
-static void fs_info_display(const struct fs_info *info)
-{
-    if (!info) return;
-
-    printf("Filesystem Info:\n");
-    printf("  Type: %s\n", fs_type_to_string(info->type));
-    printf("  UUID: %s\n", info->uuid[0] ? info->uuid : "Not set");
-}
-
 int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_part)
 {
     int ret = -1;
@@ -165,11 +44,13 @@ int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_pa
 
     // inspect the partition info after changes
     char userfs_part_device[PATH_MAX];
-    snprintf(userfs_part_device,
-             sizeof(userfs_part_device),
-             DISK_PART_FMT,
-             DISK,
-             userfs_part->partno + 1u);
+    ret = disk_part_build_path(
+        userfs_part_device, sizeof(userfs_part_device), userfs_part->partno);
+    if (ret < 0) {
+        fprintf(stderr, "Failed to build userfs partition path: %s\n", strerror(errno));
+        goto exit;
+    }
+
     LOG("Userfs partition device: %s\n", userfs_part_device);
 
     ret = fs_probe(userfs_part_device, &userfs_part->fs_info);
@@ -183,32 +64,38 @@ int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_pa
 
     fs_info_display(&userfs_part->fs_info);
 
-    bool do_create_btrfs = false;
+    bool do_format_btrfs = false;
     if (args->flags & FLAG_USERFS_FORCE_FORMAT) {
-        do_create_btrfs = true;
+        do_format_btrfs = true;
         LOG("Userfs partition (%s) will be formatted to BTRFS due to force flag\n",
             userfs_part_device);
     }
 
     switch (userfs_part->fs_info.type) {
     case FS_TYPE_BTRFS:
+        printf("Userfs partition %zu already formatted as BTRFS, skipping\n",
+               userfs_part->partno);
         break;
     case FS_TYPE_EXT4:
+        printf("Userfs partition %zu already formatted as EXT4, skipping\n",
+               userfs_part->partno);
         break;
     case FS_TYPE_UNKNOWN:
     default:
-        do_create_btrfs = true;
+        do_format_btrfs = true;
         break;
     }
 
-    if (do_create_btrfs) {
+    if (do_format_btrfs) {
         // If the userfs partition is not BTRFS, create it
         LOG("Creating BTRFS filesystem on %s\n", userfs_part_device);
 
-        const char *const mkfs_args[] = {"mkfs.btrfs",
-                                         "-f", // Force creation
-                                         userfs_part_device,
-                                         NULL};
+        const char *const mkfs_args[] = {
+            "mkfs.btrfs",
+            "-f", // Force creation
+            userfs_part_device,
+            NULL,
+        };
 
         command_display(mkfs_args[0], (char *const *)mkfs_args);
         ret = command_run(NULL, NULL, mkfs_args[0], (char *const *)mkfs_args);
@@ -243,7 +130,7 @@ int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_pa
         goto exit;
     }
 
-    if (do_create_btrfs) {
+    if (do_format_btrfs) {
         // Create subvolumes
         // FIXME use the btrfs library instead of running commands
 

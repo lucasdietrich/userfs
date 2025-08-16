@@ -38,6 +38,7 @@ static void print_usage(const char *program_name)
     printf("  -f	Force mkfs.btrfs even if already initialized (mutually exclusive "
            "with -t)\n");
     printf("  -o    Skip overlayfs setup (useful for debugging)\n");
+    printf("  -s <partno> Format swap partition <partno> (if not already formatted)\n");
     printf("  -v    Enable verbose output\n");
     printf("  -h    Show this help message\n");
     printf("  (no args) Create partition %u (userfs) if it doesn't exist\n",
@@ -54,7 +55,9 @@ static int parse_args(int argc, char *argv[], struct args *args)
         return -1;
     }
 
-    while ((opt = getopt(argc, argv, "hdfvot")) != -1) {
+    args->swap_partno = -1; // Default: not set
+
+    while ((opt = getopt(argc, argv, "hdfvots:")) != -1) {
         switch (opt) {
         case 'h':
             print_usage(argv[0]);
@@ -73,6 +76,20 @@ static int parse_args(int argc, char *argv[], struct args *args)
             break;
         case 'v':
             verbose = 1;
+            break;
+        case 's':
+            if (optarg) {
+                char *endptr = NULL;
+                long val = strtol(optarg, &endptr, 10);
+                if (*endptr != '\0' || val < 0 || val > 255) {
+                    fprintf(stderr, "Invalid swap partition number: %s\n", optarg);
+                    return -1;
+                }
+                args->swap_partno = (int)val;
+            } else {
+                fprintf(stderr, "Option -s requires a partition number argument\n");
+                return -1;
+            }
             break;
         case '?':
             fprintf(stderr, "Unknown option: -%c\n", opt);
@@ -128,21 +145,23 @@ int main(int argc, char *argv[])
         goto exit;
     }
 
-    if (args.flags & FLAG_USERFS_SKIP_OVERLAYS) {
+    if ((args.flags & FLAG_USERFS_SKIP_OVERLAYS) == 0) {
+        // STEP3: Create overlayfs for /etc, /var and /home
+        ret = step3_create_overlayfs(&args);
+        if (ret != 0) {
+            fprintf(stderr, "Failed to create overlayfs: %s\n", strerror(errno));
+            goto exit;
+        }
+    } else {
         printf("Skipping overlayfs setup as per user request\n");
-        disk_clear_info(&disk);
-        return 0; // Nothing more to do
     }
 
-    // STEP3: Create overlayfs for /etc, /var and /home
-    ret = step3_create_overlayfs(&args);
+    // STEP4: Format swap partition if not already formatted
+    ret = step4_format_swap_partition(&args, &disk);
     if (ret != 0) {
-        fprintf(stderr, "Failed to create overlayfs: %s\n", strerror(errno));
+        fprintf(stderr, "Failed to format swap partition: %s\n", strerror(errno));
         goto exit;
     }
-
-    disk_clear_info(&disk);
-    return 0;
 
 exit:
     disk_clear_info(&disk);

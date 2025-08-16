@@ -50,7 +50,7 @@ void command_display(const char *program, char *const argv[])
     if (!program || !argv) return;
 
     printf("Running command: %s ", program);
-    for (int i = 0; argv[i]; i++) {
+    for (int i = 1; argv[i]; i++) {
         printf("%s ", argv[i]);
     }
     printf("\n");
@@ -108,9 +108,14 @@ int command_run(char *buf, size_t *buflen, const char *program, char *const argv
             *buflen = (size_t)nread;
         }
 
-        ret = waitpid(pid, NULL, 0);
+        int status;
+        ret = waitpid(pid, &status, 0);
         if (ret < 0) {
             perror("waitpid");
+        } else if (WIFEXITED(status)) {
+            ret = WEXITSTATUS(status); // ret now holds the exit code of the child
+        } else {
+            ret = -1; // Abnormal termination
         }
     }
 
