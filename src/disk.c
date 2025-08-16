@@ -1,7 +1,10 @@
-#include "disk.h"
-#include "libfdisk.h"
+/*
+ * Copyright (c) 2025 Lucas Dietrich <lucas.dietrich.git@proton.me>
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include "userfs.h"
-#include "utils.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -9,6 +12,7 @@
 
 #include <blkid.h>
 #include <fcntl.h>
+#include <libfdisk.h>
 #include <linux/fs.h>
 #include <sys/ioctl.h>
 #include <unistd.h>

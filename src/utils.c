@@ -1,12 +1,17 @@
+/*
+ * Copyright (c) 2025 Lucas Dietrich <lucas.dietrich.git@proton.me>
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+ 
+#include "userfs.h"
+
+#include <stdio.h>
+
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <stdio.h>
 #include <unistd.h>
-
-#include "userfs.h"
-#include "utils.h"
-
 
 int create_directory(const char *dir)
 {
@@ -39,7 +44,6 @@ int create_directory(const char *dir)
 
     return 0;
 }
-
 
 void command_display(const char *program, char *const argv[])
 {

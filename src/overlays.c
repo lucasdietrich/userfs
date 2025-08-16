@@ -1,15 +1,19 @@
-#include <stdio.h>
+/*
+ * Copyright (c) 2025 Lucas Dietrich <lucas.dietrich.git@proton.me>
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+ 
+#include "userfs.h"
 
 #include <errno.h>
+#include <stdio.h>
 #include <string.h>
+
 #include <linux/fs.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
-
-#include "userfs.h"
-#include "btrfs.h"
-#include "utils.h"
 
 struct overlayfs_mount_point {
     const char *lowerdir;
