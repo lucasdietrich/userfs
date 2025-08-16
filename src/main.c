@@ -140,7 +140,6 @@
 #include "userfs.h"
 #include "btrfs.h"
 #include "utils.h"
-#include "overlays.h"
 #include "disk.h"
 
 int verbose = 0;

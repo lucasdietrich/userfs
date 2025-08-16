@@ -6,16 +6,13 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "libfdisk/libfdisk.h"
+#include "disk.h"
 
 #ifndef DISK
 #define DISK "/dev/mmcblk0"
 #endif
 
 #define USERFS_MOUNT_POINT "/mnt/userfs"
-
-#define MAX_DOS_PARTITIONS       4u
-#define MAX_SUPPORTED_PARTITIONS 6u
 
 #define BOOT_PART_NO   0u
 #define ROOTFS_PART_NO 1u
@@ -51,46 +48,11 @@ struct args {
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
+int step1_create_userfs_partition(struct args *args, struct disk_info *disk);
 
-enum fs_type {
-    FS_TYPE_UNKNOWN = 0,
-    FS_TYPE_BTRFS   = 1,
-    FS_TYPE_EXT4    = 2,
-};
+int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_part);
 
-struct fs_info {
-    enum fs_type type;
-    char uuid[37u]; // UUID is 36 characters + null terminator
-    char _reversed[3];
-};
+int step3_create_overlayfs(struct args *args);
 
-
-struct part_info {
-    fdisk_sector_t start;
-    fdisk_sector_t end;
-    fdisk_sector_t size;
-    size_t partno;
-    int used;
-    int type; // type code, Linux, Swap, Extended, FAT32, ...
-    const char *type_name;
-
-    /* FS informations if any */
-    struct fs_info fs_info;
-};
-
-struct disk_info {
-    int type;
-    fdisk_sector_t total_sectors;
-    uint64_t total_size; // in bytes
-
-    size_t partition_count;
-
-    struct part_info partitions[MAX_SUPPORTED_PARTITIONS];
-    size_t last_used_partno;
-
-    size_t next_free_sector;
-    size_t free_sectors;
-    uint64_t free_size; // in bytes
-};
 
 #endif /* USERFS_H */

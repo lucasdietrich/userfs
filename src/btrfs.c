@@ -15,6 +15,7 @@
 #include "userfs.h"
 #include "btrfs.h"
 #include "utils.h"
+#include "disk.h"
 
 #if defined(USERFS_BLOCK_DEVICE_TYPE_MMC)
 #define DISK_PART_FMT "%sp%zu"
