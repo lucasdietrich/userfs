@@ -160,7 +160,6 @@ extern int verbose;
 
 struct args {
     uint32_t flags; // Bitmask for flags
-    int swap_partno; // Partition number for swap partition, -1 if not set
 };
 
 #define LOG(fmt, ...)                                                                    \
@@ -182,10 +181,10 @@ struct args {
 
 int step1_create_userfs_partition(struct args *args, struct disk_info *disk);
 
-int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_part);
+int step2_create_btrfs_filesystem(struct args *args, struct disk_info *disk, size_t userfs_partno);
 
 int step3_create_overlayfs(struct args *args);
 
-int step4_format_swap_partition(struct args *args, struct disk_info *disk);
+int step4_format_swap_partition(struct args *args, struct disk_info *disk, size_t swap_partno);
 
 #endif /* USERFS_H */

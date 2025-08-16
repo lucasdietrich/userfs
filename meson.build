@@ -25,6 +25,11 @@ else
 endif
 
 add_global_arguments('-DUSERFS_PART_NO=' + get_option('userfs_partno'), language: ['cpp', 'c'])
+
+if get_option('swap')
+  add_global_arguments('-DSWAP_PART_NO=' + get_option('swap_partno'), language: ['cpp', 'c'])
+endif
+
 if get_option('overlay_opt')
   add_global_arguments('-DUSERFS_OVERLAY_OPT', language: ['cpp', 'c'])
 endif

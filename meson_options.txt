@@ -8,3 +8,7 @@ option('block_device_type', type: 'combo', choices: ['disk', 'mmc'], value: 'mmc
   description: 'Block device type to use for the disk image')
 option('block_device_name', type: 'string', value: '/dev/mmcblk0',
   description: 'Block device name to use for the disk image')
+option('swap', type: 'boolean', value: false,
+  description: 'Create a swap partition')
+option('swap_partno', type: 'combo', choices: ['4'], value: '4',
+  description: 'Partition number for the swap partition in the disk image (starting from 0)')

@@ -38,7 +38,6 @@ static void print_usage(const char *program_name)
     printf("  -f	Force mkfs.btrfs even if already initialized (mutually exclusive "
            "with -t)\n");
     printf("  -o    Skip overlayfs setup (useful for debugging)\n");
-    printf("  -s <partno> Format swap partition <partno> (if not already formatted)\n");
     printf("  -v    Enable verbose output\n");
     printf("  -h    Show this help message\n");
     printf("  (no args) Create partition %u (userfs) if it doesn't exist\n",
@@ -55,9 +54,7 @@ static int parse_args(int argc, char *argv[], struct args *args)
         return -1;
     }
 
-    args->swap_partno = -1; // Default: not set
-
-    while ((opt = getopt(argc, argv, "hdfvots:")) != -1) {
+    while ((opt = getopt(argc, argv, "hdfvot")) != -1) {
         switch (opt) {
         case 'h':
             print_usage(argv[0]);
@@ -76,20 +73,6 @@ static int parse_args(int argc, char *argv[], struct args *args)
             break;
         case 'v':
             verbose = 1;
-            break;
-        case 's':
-            if (optarg) {
-                char *endptr = NULL;
-                long val = strtol(optarg, &endptr, 10);
-                if (*endptr != '\0' || val < 0 || val > 255) {
-                    fprintf(stderr, "Invalid swap partition number: %s\n", optarg);
-                    return -1;
-                }
-                args->swap_partno = (int)val;
-            } else {
-                fprintf(stderr, "Option -s requires a partition number argument\n");
-                return -1;
-            }
             break;
         case '?':
             fprintf(stderr, "Unknown option: -%c\n", opt);
@@ -124,13 +107,6 @@ int main(int argc, char *argv[])
         goto exit;
     }
 
-    struct part_info *userfs_part = &disk.partitions[USERFS_PART_NO];
-
-    // Some assertions ...
-    ASSERT(userfs_part->used, "Userfs partition should be created and in use");
-    ASSERT(userfs_part->partno == USERFS_PART_NO,
-           "Userfs partition number should match expected value");
-
     // partprob
     ret = disk_partprobe(DISK);
     if (ret < 0) {
@@ -139,7 +115,7 @@ int main(int argc, char *argv[])
     }
 
     // STEP2: Create BTRFS filesystem on the userfs partition
-    ret = step2_create_btrfs_filesystem(&args, userfs_part);
+    ret = step2_create_btrfs_filesystem(&args, &disk, USERFS_PART_NO);
     if (ret != 0) {
         fprintf(stderr, "Failed to create BTRFS filesystem: %s\n", strerror(errno));
         goto exit;
@@ -156,12 +132,14 @@ int main(int argc, char *argv[])
         printf("Skipping overlayfs setup as per user request\n");
     }
 
+#if defined(SWAP_PART_NO)
     // STEP4: Format swap partition if not already formatted
-    ret = step4_format_swap_partition(&args, &disk);
+    ret = step4_format_swap_partition(&args, &disk, SWAP_PART_NO);
     if (ret != 0) {
         fprintf(stderr, "Failed to format swap partition: %s\n", strerror(errno));
         goto exit;
     }
+#endif /* SWAP_PART_NO */
 
 exit:
     disk_clear_info(&disk);

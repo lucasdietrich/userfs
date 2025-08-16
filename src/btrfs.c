@@ -33,9 +33,16 @@ const char *btrfs_get_volume(size_t sv_index)
     return btrfs_subvolumes[sv_index];
 }
 
-int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_part)
+int step2_create_btrfs_filesystem(struct args *args, struct disk_info *disk, size_t userfs_partno)
 {
     int ret = -1;
+
+    struct part_info *userfs_part = &disk->partitions[userfs_partno];
+
+    // Some assertions ...
+    ASSERT(userfs_part->used, "Userfs partition should be created and in use");
+    ASSERT(userfs_part->partno == userfs_partno,
+           "Userfs partition number should match expected value");
 
     // Some assertions ...
     ASSERT(userfs_part->used, "Userfs partition should be created and in use");

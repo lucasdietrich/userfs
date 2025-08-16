@@ -17,19 +17,13 @@
 #include <sys/mount.h>
 #include <unistd.h>
 
-int step4_format_swap_partition(struct args *args, struct disk_info *disk)
+int step4_format_swap_partition(struct args *args, struct disk_info *disk, size_t swap_partno)
 {
+    (void)args;
     int ret = -1;
 
-    if (args->swap_partno < 0) {
-        printf("No swap partition specified, skipping formatting\n");
-        return 0;
-    }
-
-    size_t swap_partno = (size_t)args->swap_partno;
-
     if (swap_partno >= disk->partition_count) {
-        fprintf(stderr, "Invalid swap partition number: %d\n", args->swap_partno);
+        fprintf(stderr, "Invalid swap partition number: %d\n", swap_partno);
         goto exit;
     }
 
