@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
- 
+
 #include "userfs.h"
 
 #include <errno.h>
@@ -33,28 +33,19 @@ const char *btrfs_get_volume(size_t sv_index)
     return btrfs_subvolumes[sv_index];
 }
 
-int step2_create_btrfs_filesystem(struct args *args, struct disk_info *disk, size_t userfs_partno)
+int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_part)
 {
     int ret = -1;
 
-    struct part_info *userfs_part = &disk->partitions[userfs_partno];
-
     // Some assertions ...
     ASSERT(userfs_part->used, "Userfs partition should be created and in use");
-    ASSERT(userfs_part->partno == userfs_partno,
-           "Userfs partition number should match expected value");
-
-    // Some assertions ...
-    ASSERT(userfs_part->used, "Userfs partition should be created and in use");
-    ASSERT(userfs_part->partno == USERFS_PART_NO,
-           "Userfs partition number should match expected value");
 
     // inspect the partition info after changes
     char userfs_part_device[PATH_MAX];
     ret = disk_part_build_path(
         userfs_part_device, sizeof(userfs_part_device), userfs_part->partno);
     if (ret < 0) {
-        fprintf(stderr, "Failed to build userfs partition path: %s\n", strerror(errno));
+        ERR("Failed to build userfs partition path: %s\n", strerror(errno));
         goto exit;
     }
 
@@ -108,7 +99,7 @@ int step2_create_btrfs_filesystem(struct args *args, struct disk_info *disk, siz
         ret = command_run(NULL, NULL, mkfs_args[0], (char *const *)mkfs_args);
         LOG("mkfs.btrfs returned: %d\n", ret);
         if (ret < 0) {
-            fprintf(stderr, "Failed to create BTRFS filesystem: %s\n", strerror(errno));
+            ERR("Failed to create BTRFS filesystem: %s\n", strerror(errno));
             goto exit;
         }
 

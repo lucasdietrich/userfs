@@ -1,0 +1,10 @@
+root@dk2:~# blkid
+/dev/mmcblk0p9: UUID="87701c55-6e67-49e8-a421-7ddf3a2cddc0" BLOCK_SIZE="1024" TYPE="ext4" PARTLABEL="rootfs" PARTUUID="574e1e5d-c1e0-4306-b028-3fe302d5f097"
+/dev/mmcblk0p8: SEC_TYPE="msdos" LABEL_FATBOOT="bootfs" LABEL="bootfs" UUID="2EA9-20F2" BLOCK_SIZE="512" TYPE="vfat" PARTLABEL="bootfs" PARTUUID="44e1f461-2563-47b9-ac45-be4f54809c76"
+/dev/mmcblk0p4: PARTLABEL="tee-pager" PARTUUID="481c6714-0338-4fce-99a9-4002db0af1f3"
+/dev/mmcblk0p2: PARTLABEL="fsbl2" PARTUUID="2df404bb-eb0f-44f5-98c8-4b44f4172ea3"
+/dev/mmcblk0p7: PARTLABEL="u-boot-env" PARTUUID="a4a6147e-c16c-42b3-ad88-e2b471e58b0a"
+/dev/mmcblk0p5: PARTLABEL="tee-pageable" PARTUUID="ae3481fd-3031-4f91-bb02-0e74cb34ed28"
+/dev/mmcblk0p3: PARTLABEL="tee-header" PARTUUID="26f6deb8-40cd-427e-8be5-9ab37f525e7e"
+/dev/mmcblk0p1: PARTLABEL="fsbl1" PARTUUID="86fa21bd-b45c-4dda-8657-6420e9ef384e"
+/dev/mmcblk0p6: PARTLABEL="u-boot" PARTUUID="16ced732-0bb8-4850-a93d-06fccd412448"

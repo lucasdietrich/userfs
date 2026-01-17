@@ -12,6 +12,7 @@
 #include <string.h>
 
 // #include <cstdio>
+#include "disk.h"
 #include "userfs.h"
 
 #include <errno.h>
@@ -32,7 +33,7 @@ static void print_usage(const char *program_name)
     printf("Usage: %s [OPTIONS]\n", program_name);
     printf("Manage userfs partition on %s\n\n", DISK);
     printf("Options:\n");
-    printf("  -d    Delete partition %u (userfs) if it exists\n", USERFS_PART_NO);
+    printf("  -d    Delete userfs partition if it exists\n");
     printf("  -t    Trust existing userfs filesystem (if valid) after partition creation "
            "(first boot)\n");
     printf("  -f	Force mkfs.btrfs even if already initialized (mutually exclusive "
@@ -40,8 +41,7 @@ static void print_usage(const char *program_name)
     printf("  -o    Skip overlayfs setup (useful for debugging)\n");
     printf("  -v    Enable verbose output\n");
     printf("  -h    Show this help message\n");
-    printf("  (no args) Create partition %u (userfs) if it doesn't exist\n",
-           USERFS_PART_NO);
+    printf("  (no args) Create (userfs) partition if it doesn't exist\n");
     printf("\n");
 }
 
@@ -50,7 +50,7 @@ static int parse_args(int argc, char *argv[], struct args *args)
     int opt;
 
     if (!args) {
-        fprintf(stderr, "Invalid arguments\n");
+        ERR("Invalid arguments\n");
         return -1;
     }
 
@@ -75,11 +75,11 @@ static int parse_args(int argc, char *argv[], struct args *args)
             verbose = 1;
             break;
         case '?':
-            fprintf(stderr, "Unknown option: -%c\n", opt);
+            ERR("Unknown option: -%c\n", opt);
             print_usage(argv[0]);
             return -1;
         default:
-            fprintf(stderr, "Unknown option: -%c\n", opt);
+            ERR("Unknown option: -%c\n", opt);
             print_usage(argv[0]);
             return -1;
         }
@@ -96,28 +96,47 @@ int main(int argc, char *argv[])
 
     ret = parse_args(argc, argv, &args);
     if (ret != 0) {
-        fprintf(stderr, "Failed to parse arguments\n");
+        ERR("Failed to parse arguments\n");
+        goto exit;
+    }
+
+    // ret = disk_partprobe2(DISK);
+    // if (ret < 0) {
+    //     ERR("Failed to partprobe: %s\n", strerror(errno));
+    //     goto exit;
+    // }
+
+    // exit(EXIT_SUCCESS);
+
+    // partprob
+    ret = disk_partprobe(DISK);
+    if (ret < 0) {
+        ERR("Failed to partprobe: %s\n", strerror(errno));
         goto exit;
     }
 
     // STEP1: Inspect the disk and create userfs partition if it doesn't exist
     ret = step1_create_userfs_partition(&args, &disk);
     if (ret != 0) {
-        fprintf(stderr, "Failed to create userfs partition: %s\n", strerror(errno));
-        goto exit;
-    }
-
-    // partprob
-    ret = disk_partprobe(DISK);
-    if (ret < 0) {
-        fprintf(stderr, "Failed to partprobe: %s\n", strerror(errno));
+        ERR("Failed to create userfs partition: %s\n", strerror(errno));
         goto exit;
     }
 
     // STEP2: Create BTRFS filesystem on the userfs partition
-    ret = step2_create_btrfs_filesystem(&args, &disk, USERFS_PART_NO);
+    struct part_info *userfs_part;
+#if USERFS_PARTITION_TABLE_DOS
+    userfs_part = &disk.partitions[USERFS_PART_NO];
+#elif USERFS_PARTITION_TABLE_GPT
+    userfs_part = disk_find_partition_by_label(&disk, USERFS_PART_LABEL);
+#endif
+    if (!userfs_part) {
+        ERR("Userfs partition not found after creation\n");
+        goto exit;
+    }
+
+    ret = step2_create_btrfs_filesystem(&args, userfs_part);
     if (ret != 0) {
-        fprintf(stderr, "Failed to create BTRFS filesystem: %s\n", strerror(errno));
+        ERR("Failed to create BTRFS filesystem: %s\n", strerror(errno));
         goto exit;
     }
 
@@ -125,7 +144,7 @@ int main(int argc, char *argv[])
         // STEP3: Create overlayfs for /etc, /var and /home
         ret = step3_create_overlayfs(&args);
         if (ret != 0) {
-            fprintf(stderr, "Failed to create overlayfs: %s\n", strerror(errno));
+            ERR("Failed to create overlayfs: %s\n", strerror(errno));
             goto exit;
         }
     } else {
@@ -136,7 +155,7 @@ int main(int argc, char *argv[])
     // STEP4: Format swap partition if not already formatted
     ret = step4_format_swap_partition(&args, &disk, SWAP_PART_NO);
     if (ret != 0) {
-        fprintf(stderr, "Failed to format swap partition: %s\n", strerror(errno));
+        ERR("Failed to format swap partition: %s\n", strerror(errno));
         goto exit;
     }
 #endif /* SWAP_PART_NO */

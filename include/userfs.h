@@ -147,9 +147,6 @@
 
 #define BOOT_PART_NO   0u
 #define ROOTFS_PART_NO 1u
-#ifndef USERFS_PART_NO
-#define USERFS_PART_NO 2u
-#endif /* USERFS_PART_NO */
 
 #define FLAG_USERFS_DELETE         (1 << 1u)
 #define FLAG_USERFS_FORCE_FORMAT   (1 << 2u)
@@ -169,11 +166,16 @@ struct args {
         }                                                                                \
     } while (0)
 
+#define ERR(fmt, ...)                                                                   \
+    do {                                                                                 \
+        fprintf(stderr, fmt, ##__VA_ARGS__);                                             \
+    } while (0)
+
 #define ASSERT(cond, msg)                                                                \
     do {                                                                                 \
         if (!(cond)) {                                                                   \
-            fprintf(stderr, "Assertion failed: %s\n", msg);                              \
-            return -1;                                                                   \
+            ERR("%s:%s Assertion failed: %s\n", __FILE__, __func__, msg);                              \
+            exit(EXIT_FAILURE);                                                          \
         }                                                                                \
     } while (0)
 
@@ -181,7 +183,7 @@ struct args {
 
 int step1_create_userfs_partition(struct args *args, struct disk_info *disk);
 
-int step2_create_btrfs_filesystem(struct args *args, struct disk_info *disk, size_t userfs_partno);
+int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_part);
 
 int step3_create_overlayfs(struct args *args);
 

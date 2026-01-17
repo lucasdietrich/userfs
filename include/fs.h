@@ -22,5 +22,6 @@
 int fs_probe(const char *part_device, struct fs_info *info);
 
 void fs_info_display(const struct fs_info *info);
+void fs_info_display_inline(const struct fs_info *info);
 
 #endif /* USERFS_FS_H */
