@@ -100,14 +100,6 @@ int main(int argc, char *argv[])
         goto exit;
     }
 
-    // ret = disk_partprobe2(DISK);
-    // if (ret < 0) {
-    //     ERR("Failed to partprobe: %s\n", strerror(errno));
-    //     goto exit;
-    // }
-
-    // exit(EXIT_SUCCESS);
-
     // partprob
     ret = disk_partprobe(DISK);
     if (ret < 0) {

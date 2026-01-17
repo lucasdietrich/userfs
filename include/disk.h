@@ -71,8 +71,6 @@ struct disk_info {
 };
 
 int disk_partprobe(const char *device);
-int disk_partprobe2(const char *device);
-int disk_partprobe3(const char *device);
 
 void disk_clear_info(struct disk_info *disk);
 

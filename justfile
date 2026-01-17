@@ -21,7 +21,8 @@ setup:
   if [ ! -f {{builddir}}/build.ninja ]; then \
     meson {{builddir}} --buildtype=debug \
         -Dblock_device_name=/dev/mmcblk0 \
-        -Dpartition_table=gpt; \
+        -Dpartition_table=gpt \
+        -Doverlay_opt=true; \
   fi
 
 setup_sdd:

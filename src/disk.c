@@ -656,6 +656,12 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
     LOG("(GPT) Looking for userfs partition with label '%s'\n", USERFS_PART_LABEL);
     struct part_info *userfs_part = disk_find_partition_by_label(disk, USERFS_PART_LABEL);
 #endif
+    bool partition_exists = (userfs_part && userfs_part->used);
+    if (partition_exists) {
+        LOG("Userfs partition found: partno %zu\n", userfs_part->partno);
+    } else {
+        LOG("Userfs partition not found\n");
+    }
 
     // If the user asked to delete the userfs partition, do it now
     if (args->flags & FLAG_USERFS_DELETE) {
@@ -675,45 +681,30 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
 
         // Nothing to do after deletion, exit
         exit(EXIT_SUCCESS);
-    } else {
-#if USERFS_PARTITION_TABLE_DOS
-        // otherwise try to create the userfs partition if it doesn't exist
-        ret = disk_dos_create_userfs_partition(ctx, label, disk, USERFS_PART_NO);
-        if (ret == 0) {
-            // FIRST BOOT: Userfs partition created successfully:
-            // we prefer to reformat the userfs partition to BTRFS even if it exists
-            // from a previous installation, unless the user asked to trust it
-            // with the -t flag.
-            if (args->flags & FLAG_USERFS_TRUST_RESIDENT) {
-                printf("First boot: Trusting existing userfs partition without "
-                       "formatting\n");
-            } else {
-                printf("First boot: Userfs partition created, formatting to BTRFS\n");
-                args->flags |= FLAG_USERFS_FORCE_FORMAT;
-            }
-        } else if (ret == 1) {
-            // NOT FIRST BOOT: Userfs partition already exists:
-            // we do want to keep the existing userfs partition if it exists
+    } else if (!partition_exists) {
+        // FIRST BOOT: Userfs partition does not exist
+        // we prefer to reformat the userfs partition to BTRFS even if it exists
+        // from a previous installation, unless the user asked to trust it
+        // with the -t flag.
+        if (args->flags & FLAG_USERFS_TRUST_RESIDENT) {
+            printf("First boot: Trusting existing userfs partition without "
+                   "formatting\n");
         } else {
-            ERR("Failed to create userfs partition\n");
-            goto exit;
+            printf("First boot: Userfs partition will be formatted to BTRFS\n");
+            args->flags |= FLAG_USERFS_FORCE_FORMAT;
         }
-
-        // Do sync
-        ret = fdisk_deassign_device(ctx, 0);
-        if (ret != 0) {
-            ERR("Failed to deassign device\n");
-            goto exit;
-        }
-        fdisk_unref_context(ctx);
-#elif USERFS_PARTITION_TABLE_GPT
         // otherwise try to create the userfs partition if it doesn't exist
+#if USERFS_PARTITION_TABLE_DOS
+        ret = disk_dos_create_userfs_partition(ctx, label, disk, USERFS_PART_NO);
+#elif USERFS_PARTITION_TABLE_GPT
         ret = disk_gpt_create_partition_if_not_exist(ctx, label, disk, USERFS_PART_LABEL);
+#endif
         if (ret != 0) {
             ERR("Failed to create userfs partition\n");
             goto exit;
         }
-#endif
+    } else {
+        LOG("Userfs partition already exists, nothing to do\n");
     }
 
     // partprobe before disk_read_partitions with do_blkid_probe=true
@@ -734,8 +725,10 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
     return 0;
 
 exit:
+    // Success - cleanup and return success
     disk_clear_info(disk);
-    if (ctx) fdisk_unref_context(ctx);
+    fdisk_deassign_device(ctx, 0);
+    fdisk_unref_context(ctx);
     return ret;
 }
 
@@ -760,60 +753,6 @@ int disk_partprobe(const char *device)
         NULL,
     };
     ret = command_run(NULL, NULL, "partprobe", partprobe_args);
-
-    return ret;
-}
-
-int disk_partprobe2(const char *device)
-{
-    /* check libparted/arch/linux.c */
-    int ret;
-
-    int fd = open(device, O_RDONLY);
-    if (fd < 0) {
-        perror("open");
-        ERR("Failed to open device\n");
-        return -1;
-    }
-
-#define REAL_BLKRRPART 0x125f
-    // BLKRRPART
-
-    printf("Issuing REAL_BLKRRPART ioctl...\n");
-
-    ret = ioctl(fd, REAL_BLKRRPART);
-    printf("ioctl returned: %d %s\n", ret, strerror(errno));
-    close(fd);
-
-    sleep(1); // Wait for /dev/mmcblk0pX to appear
-
-    return ret;
-}
-
-int disk_partprobe3(const char *device)
-{
-    /* check libparted/arch/linux.c */
-    int ret;
-
-    int fd = open(device, O_RDONLY);
-    if (fd < 0) {
-        perror("open");
-        ERR("Failed to open device\n");
-        return -1;
-    }
-
-    struct blkpg_ioctl_arg arg;
-
-    arg.op      = BLKPG_DEL_PARTITION;
-    arg.flags   = 0;
-    arg.datalen = sizeof(struct blkpg_partition);
-    arg.data    = (void *)10; // partno
-
-    ret = ioctl(fd, BLKPG, &arg);
-    printf("ioctl returned: %d %s\n", ret, strerror(errno));
-    close(fd);
-
-    sleep(1); // Wait for /dev/mmcblk0pX to appear
 
     return ret;
 }

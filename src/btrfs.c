@@ -63,25 +63,24 @@ int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_pa
     fs_info_display(&userfs_part->fs_info);
 
     bool do_format_btrfs = false;
-    if (args->flags & FLAG_USERFS_FORCE_FORMAT) {
-        do_format_btrfs = true;
-        LOG("Userfs partition (%s) will be formatted to BTRFS due to force flag\n",
-            userfs_part_device);
-    }
 
     switch (userfs_part->fs_info.type) {
     case FS_TYPE_BTRFS:
-        printf("Userfs partition %zu already formatted as BTRFS, skipping\n",
-               userfs_part->partno);
+        printf("Userfs partition %zu already formatted as BTRFS\n", userfs_part->partno);
         break;
     case FS_TYPE_EXT4:
-        printf("Userfs partition %zu already formatted as EXT4, skipping\n",
-               userfs_part->partno);
+        printf("Userfs partition %zu already formatted as EXT4\n", userfs_part->partno);
         break;
     case FS_TYPE_UNKNOWN:
     default:
         do_format_btrfs = true;
         break;
+    }
+
+    if (args->flags & FLAG_USERFS_FORCE_FORMAT) {
+        do_format_btrfs = true;
+        LOG("Userfs partition (%s) will be formatted to BTRFS due to force flag\n",
+            userfs_part_device);
     }
 
     if (do_format_btrfs) {
