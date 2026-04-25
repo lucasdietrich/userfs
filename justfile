@@ -22,7 +22,7 @@ setup:
     meson {{builddir}} --buildtype=debug \
         -Dswap=true \
         -Dswap_partno=4 \
-        -Duserfs_partno=5 \
+        -Duserfs_partno=5; \
   fi
 
 setup_sdd:

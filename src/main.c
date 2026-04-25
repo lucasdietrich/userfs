@@ -133,12 +133,16 @@ int main(int argc, char *argv[])
     }
 
 #if defined(SWAP_PART_NO)
+    printf("SWAP_PART_NO is defined as %d, proceeding to format swap partition if needed\n",
+           SWAP_PART_NO);
     // STEP4: Format swap partition if not already formatted
     ret = step4_format_swap_partition(&args, &disk, SWAP_PART_NO);
     if (ret != 0) {
         fprintf(stderr, "Failed to format swap partition: %s\n", strerror(errno));
         goto exit;
     }
+#else
+    printf("SWAP_PART_NO is not defined, skipping swap partition formatting\n");
 #endif /* SWAP_PART_NO */
 
 exit:
