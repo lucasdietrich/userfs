@@ -6,8 +6,8 @@ option('overlay_opt', type: 'boolean', value: false,
   description: 'Create overlayfs mount points for /opt')
 option('block_device_type', type: 'combo', choices: ['disk', 'mmc'], value: 'mmc',
   description: 'Block device type to use for the disk image')
-option('block_device_name', type: 'string', value: '/dev/mmcblk0',
-  description: 'Block device name to use for the disk image')
+option('default_block_device_name', type: 'string', value: '/dev/mmcblk0',
+  description: 'Default block device name to use when no runtime override is provided')
 option('swap', type: 'boolean', value: false,
   description: 'Create a swap partition')
 option('swap_partno', type: 'combo', choices: ['4'], value: '4',

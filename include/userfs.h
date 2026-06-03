@@ -131,8 +131,8 @@
 #include "utils.h"
 #include "fs.h"
 
-#ifndef DISK
-#define DISK "/dev/mmcblk0"
+#ifndef DEFAULT_DISK
+#define DEFAULT_DISK "/dev/mmcblk0"
 #endif
 
 #if defined(USERFS_BLOCK_DEVICE_TYPE_MMC)
@@ -157,6 +157,7 @@ extern int verbose;
 
 struct args {
     uint32_t flags; // Bitmask for flags
+    const char *block_device_name;
 };
 
 #define LOG(fmt, ...)                                                                    \

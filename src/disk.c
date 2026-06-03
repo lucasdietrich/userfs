@@ -75,6 +75,7 @@ exit:
 static int disk_read_partitions(struct fdisk_context *ctx,
                                 struct fdisk_label *label,
                                 struct disk_info *disk,
+                                const char *device,
                                 bool do_blkid_probe)
 {
     disk->type          = fdisk_label_get_type(label);
@@ -115,7 +116,7 @@ static int disk_read_partitions(struct fdisk_context *ctx,
         if (do_blkid_probe) {
             // inspect the partition info after changes
             char dev[PATH_MAX];
-            int ret = disk_part_build_path(dev, sizeof(dev), pinfo->partno);
+            int ret = disk_part_build_path(device, dev, sizeof(dev), pinfo->partno);
             if (ret < 0) {
                 fprintf(stderr,
                         "Failed to build userfs partition path: %s\n",
@@ -264,7 +265,7 @@ static int disk_dos_add_userfs_as_new_primary_partition(struct fdisk_context *ct
     }
 
     disk_clear_info(disk);
-    ret = disk_read_partitions(ctx, label, disk, false);
+    ret = disk_read_partitions(ctx, label, disk, NULL, false);
     ASSERT(ret == 0, "Failed to read partitions after deletion");
     disk_display_info(disk);
 
@@ -305,7 +306,7 @@ static int disk_dos_extend_partition_add_userfs(struct fdisk_context *ctx,
     }
 
     disk_clear_info(disk);
-    ret = disk_read_partitions(ctx, label, disk, false);
+    ret = disk_read_partitions(ctx, label, disk, NULL, false);
     ASSERT(ret == 0, "Failed to read partitions after deletion");
     disk_display_info(disk);
 
@@ -327,7 +328,7 @@ static int disk_dos_extend_partition_add_userfs(struct fdisk_context *ctx,
     }
 
     disk_clear_info(disk);
-    ret = disk_read_partitions(ctx, label, disk, false);
+    ret = disk_read_partitions(ctx, label, disk, NULL, false);
     ASSERT(ret == 0, "Failed to read partitions after deletion");
     disk_display_info(disk);
 
@@ -345,7 +346,7 @@ static int disk_dos_extend_partition_add_userfs(struct fdisk_context *ctx,
     }
 
     disk_clear_info(disk);
-    ret = disk_read_partitions(ctx, label, disk, false);
+    ret = disk_read_partitions(ctx, label, disk, NULL, false);
     ASSERT(ret == 0, "Failed to read partitions after moved add");
     disk_display_info(disk);
 
@@ -360,10 +361,10 @@ static int disk_dos_extend_partition_add_userfs(struct fdisk_context *ctx,
     if (ret != 0) {
         ERR("Failed to add userfs partition\n");
         goto exit;
-    }
+    }   
 
     disk_clear_info(disk);
-    ret = disk_read_partitions(ctx, label, disk, false);
+    ret = disk_read_partitions(ctx, label, disk, NULL, false);
     ASSERT(ret == 0, "Failed to read partitions after userfs add");
     disk_display_info(disk);
 
@@ -481,7 +482,7 @@ static int disk_gpt_add_userfs_partition(struct fdisk_context *ctx,
     }
 
     disk_clear_info(disk);
-    ret = disk_read_partitions(ctx, label, disk, false);
+    ret = disk_read_partitions(ctx, label, disk, NULL, false);
     ASSERT(ret == 0, "Failed to read partitions after deletion");
     disk_display_info(disk);
 
@@ -607,6 +608,7 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
     uint64_t device_size      = 0;
     struct fdisk_context *ctx = NULL;
     struct fdisk_label *label = NULL;
+    const char *device        = args->block_device_name;
 
     fdisk_init_debug(0x0);
     blkid_init_debug(0x0);
@@ -617,7 +619,7 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
         goto exit;
     }
 
-    if (fdisk_assign_device(ctx, DISK, RO_ENABLED) < 0) {
+    if (fdisk_assign_device(ctx, device, RO_ENABLED) < 0) {
         ERR("Failed to assign device\n");
         goto exit;
     }
@@ -634,13 +636,13 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
         goto exit;
     }
 
-    ret = disk_read_partitions(ctx, label, disk, true);
+    ret = disk_read_partitions(ctx, label, disk, device, true);
     if (ret != 0) {
         ERR("Failed to read disk info\n");
         goto exit;
     }
 
-    if (disk_get_size(DISK, &device_size) != 0) {
+    if (disk_get_size(device, &device_size) != 0) {
         ERR("Failed to get device size\n");
         goto exit;
     }
@@ -708,13 +710,13 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
     }
 
     // partprobe before disk_read_partitions with do_blkid_probe=true
-    ret = disk_partprobe(DISK);
+    ret = disk_partprobe(device);
     if (ret < 0) {
         ERR("Failed to partprobe: %s\n", strerror(errno));
         goto exit;
     }
 
-    ret = disk_read_partitions(ctx, label, disk, true);
+    ret = disk_read_partitions(ctx, label, disk, device, true);
     if (ret != 0) {
         ERR("Failed to read disk info\n");
         goto exit;
@@ -757,7 +759,7 @@ int disk_partprobe(const char *device)
     return ret;
 }
 
-ssize_t disk_part_build_path(char *buf, size_t buf_len, size_t partno)
+ssize_t disk_part_build_path(const char *device, char *buf, size_t buf_len, size_t partno)
 {
-    return snprintf(buf, buf_len, DISK_PART_FMT, DISK, partno + 1u);
+    return snprintf(buf, buf_len, DISK_PART_FMT, device, partno + 1u);
 }

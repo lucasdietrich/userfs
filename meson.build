@@ -38,7 +38,7 @@ else
   add_global_arguments('-DUSERFS_BLOCK_DEVICE_TYPE_DISK', language: ['cpp', 'c'])
 endif
 
-add_global_arguments('-DDISK="' + get_option('block_device_name') + '"', language: ['cpp', 'c'])
+add_global_arguments('-DDEFAULT_DISK="' + get_option('default_block_device_name') + '"', language: ['cpp', 'c'])
 
 dependencies = [
   dependency('fdisk'),

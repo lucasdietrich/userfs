@@ -30,7 +30,8 @@ int step4_format_swap_partition(struct args *args,
     }
 
     char swap_part_device[PATH_MAX];
-    ret = disk_part_build_path(swap_part_device, sizeof(swap_part_device), swap_partno);
+    ret = disk_part_build_path(
+        args->block_device_name, swap_part_device, sizeof(swap_part_device), swap_partno);
     if (ret < 0) {
         ERR("Failed to build swap partition path: %s\n", strerror(errno));
         goto exit;

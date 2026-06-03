@@ -31,8 +31,9 @@ int verbose = 0;
 static void print_usage(const char *program_name)
 {
     printf("Usage: %s [OPTIONS]\n", program_name);
-    printf("Manage userfs partition on %s\n\n", DISK);
+    printf("Manage userfs partition on %s by default\n\n", DEFAULT_DISK);
     printf("Options:\n");
+    printf("  -b <device>  Override the block device path at runtime\n");
     printf("  -d    Delete userfs partition if it exists\n");
     printf("  -t    Trust existing userfs filesystem (if valid) after partition creation "
            "(first boot)\n");
@@ -54,11 +55,14 @@ static int parse_args(int argc, char *argv[], struct args *args)
         return -1;
     }
 
-    while ((opt = getopt(argc, argv, "hdfvot")) != -1) {
+    while ((opt = getopt(argc, argv, "hb:dfvot")) != -1) {
         switch (opt) {
         case 'h':
             print_usage(argv[0]);
             exit(EXIT_SUCCESS);
+        case 'b':
+            args->block_device_name = optarg;
+            break;
         case 'd':
             args->flags |= FLAG_USERFS_DELETE;
             break;
@@ -92,7 +96,9 @@ int main(int argc, char *argv[])
 {
     int ret               = -1;
     struct disk_info disk = {0};
-    struct args args      = {0};
+    struct args args      = {
+        .block_device_name = DEFAULT_DISK,
+    };
 
     ret = parse_args(argc, argv, &args);
     if (ret != 0) {
@@ -100,8 +106,10 @@ int main(int argc, char *argv[])
         goto exit;
     }
 
+    printf("Manage userfs partition on %s\n\n", args.block_device_name);
+
     // partprob
-    ret = disk_partprobe(DISK);
+    ret = disk_partprobe(args.block_device_name);
     if (ret < 0) {
         ERR("Failed to partprobe: %s\n", strerror(errno));
         goto exit;

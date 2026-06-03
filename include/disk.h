@@ -74,7 +74,10 @@ int disk_partprobe(const char *device);
 
 void disk_clear_info(struct disk_info *disk);
 
-ssize_t disk_part_build_path(char *buf, size_t buf_len, size_t partno);
+ssize_t disk_part_build_path(const char *device,
+                            char *buf,
+                            size_t buf_len,
+                            size_t partno);
 
 struct part_info *disk_find_partition_by_label(struct disk_info *disk,
                                                const char *partlabel);
