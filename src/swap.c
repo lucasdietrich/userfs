@@ -65,7 +65,6 @@ int step4_format_swap_partition(struct args *args,
             NULL,
         };
 
-        command_display(mkswap_args[0], (char *const *)mkswap_args);
         ret = command_run(NULL, NULL, mkswap_args[0], (char *const *)mkswap_args);
         LOG("mkswap returned: %d\n", ret);
         if (ret < 0) {

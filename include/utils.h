@@ -24,8 +24,6 @@
 
 int create_directory(const char *dir);
 
-void command_display(const char *program, char *const argv[]);
-
 int command_run(char *buf, size_t *buflen, const char *program, char *const argv[]);
 
 #endif /* USERFS_UTILS_H */

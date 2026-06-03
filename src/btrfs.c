@@ -94,7 +94,6 @@ int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_pa
             NULL,
         };
 
-        command_display(mkfs_args[0], (char *const *)mkfs_args);
         ret = command_run(NULL, NULL, mkfs_args[0], (char *const *)mkfs_args);
         LOG("mkfs.btrfs returned: %d\n", ret);
         if (ret < 0) {
@@ -149,8 +148,6 @@ int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_pa
 
             LOG("Creating BTRFS subvolume: %s\n", sv_name);
 
-            command_display(btrfs_create_subvolumes[0],
-                            (char *const *)btrfs_create_subvolumes);
             ret = command_run(NULL,
                               NULL,
                               btrfs_create_subvolumes[0],

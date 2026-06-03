@@ -45,19 +45,20 @@ int create_directory(const char *dir)
     return 0;
 }
 
-void command_display(const char *program, char *const argv[])
+static void command_display(const char *program, char *const argv[])
 {
     if (!program || !argv) return;
 
-    printf("Running command: %s ", program);
+    printf("Running command: %s \\\n", program);
     for (int i = 1; argv[i]; i++) {
-        printf("%s ", argv[i]);
+        printf("\t%s \\\n", argv[i]);
     }
-    printf("\n");
 }
 
 int command_run(char *buf, size_t *buflen, const char *program, char *const argv[])
 {
+    command_display(program, argv);
+
     int ret       = -1;
     int pipefd[2] = {-1, -1}; // [0] = read, [1] = write
     pid_t pid;
