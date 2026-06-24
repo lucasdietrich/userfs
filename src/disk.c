@@ -153,9 +153,9 @@ static int disk_read_partitions(struct fdisk_context *ctx,
 
 static void disk_display_info(const struct disk_info *disk)
 {
-    LOG("Disk Information (type: %d, parts: %u)\n", disk->type, disk->partition_count);
-    LOG("\tTotal: %llu sectors (%llu MB)\n", disk->total_sectors, disk->total_size / MB);
-    LOG("\tFree: %u sectors (%llu MB)\n", disk->free_sectors, disk->free_size / MB);
+    LOG("Disk Information (type: %d, parts: %zu)\n", disk->type, disk->partition_count);
+    LOG("\tTotal: %llu sectors (%llu MB)\n", (unsigned long long)disk->total_sectors, (unsigned long long)(disk->total_size / MB));
+    LOG("\tFree: %zu sectors (%llu MB)\n", disk->free_sectors, (unsigned long long)(disk->free_size / MB));
 
     for (size_t n = 0; n < disk->partition_count; n++) {
         const struct part_info *pinfo = &disk->partitions[n];
@@ -166,7 +166,7 @@ static void disk_display_info(const struct disk_info *disk)
 
         uint64_t approx_size_mb = pinfo->size * SECTOR_SIZE / MB;
 
-        LOG("[%zu] %s (%02zx) start: %llu end: %llu size: %llu (%llu MB)\n",
+        LOG("[%zu] %s (%02x) start: %llu end: %llu size: %llu (%llu MB)\n",
             pinfo->partno,
             pinfo->type_name,
             pinfo->type,
@@ -184,7 +184,7 @@ static void disk_display_info(const struct disk_info *disk)
 static int
 disk_add_part(struct fdisk_context *ctx, struct fdisk_label *label, struct part_info *new)
 {
-    printf("Adding partition: %d start: %llu end: %llu size: %llu\n",
+    printf("Adding partition: %zu start: %llu end: %llu size: %llu\n",
            new->partno,
            (unsigned long long)new->start,
            (unsigned long long)new->end,

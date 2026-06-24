@@ -25,7 +25,7 @@ int step4_format_swap_partition(struct args *args,
     int ret = -1;
 
     if (swap_partno >= disk->partition_count) {
-        ERR("Invalid swap partition number: %d\n", swap_partno);
+        ERR("Invalid swap partition number: %zu\n", swap_partno);
         goto exit;
     }
 
