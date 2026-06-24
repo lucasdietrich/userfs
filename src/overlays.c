@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
- 
+
 #include "userfs.h"
 
 #include <errno.h>
@@ -164,7 +164,7 @@ int step3_create_overlayfs(struct args *args)
 
     ret = mount("tmpfs", "/var/volatile", "tmpfs", 0, "mode=0755");
     if (ret < 0) {
-        fprintf(stderr, "Failed to mount /var/volatile: %s\n", strerror(errno));
+        ERR("Failed to mount /var/volatile: %s\n", strerror(errno));
         goto exit;
     }
 

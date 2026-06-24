@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
- 
+
 #include "userfs.h"
 
 #include <errno.h>
@@ -33,28 +33,22 @@ const char *btrfs_get_volume(size_t sv_index)
     return btrfs_subvolumes[sv_index];
 }
 
-int step2_create_btrfs_filesystem(struct args *args, struct disk_info *disk, size_t userfs_partno)
+int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_part)
 {
     int ret = -1;
 
-    struct part_info *userfs_part = &disk->partitions[userfs_partno];
-
     // Some assertions ...
     ASSERT(userfs_part->used, "Userfs partition should be created and in use");
-    ASSERT(userfs_part->partno == userfs_partno,
-           "Userfs partition number should match expected value");
-
-    // Some assertions ...
-    ASSERT(userfs_part->used, "Userfs partition should be created and in use");
-    ASSERT(userfs_part->partno == USERFS_PART_NO,
-           "Userfs partition number should match expected value");
 
     // inspect the partition info after changes
     char userfs_part_device[PATH_MAX];
     ret = disk_part_build_path(
-        userfs_part_device, sizeof(userfs_part_device), userfs_part->partno);
+        args->block_device_name,
+        userfs_part_device,
+        sizeof(userfs_part_device),
+        userfs_part->partno);
     if (ret < 0) {
-        fprintf(stderr, "Failed to build userfs partition path: %s\n", strerror(errno));
+        ERR("Failed to build userfs partition path: %s\n", strerror(errno));
         goto exit;
     }
 
@@ -72,25 +66,24 @@ int step2_create_btrfs_filesystem(struct args *args, struct disk_info *disk, siz
     fs_info_display(&userfs_part->fs_info);
 
     bool do_format_btrfs = false;
-    if (args->flags & FLAG_USERFS_FORCE_FORMAT) {
-        do_format_btrfs = true;
-        LOG("Userfs partition (%s) will be formatted to BTRFS due to force flag\n",
-            userfs_part_device);
-    }
 
     switch (userfs_part->fs_info.type) {
     case FS_TYPE_BTRFS:
-        printf("Userfs partition %zu already formatted as BTRFS, skipping\n",
-               userfs_part->partno);
+        printf("Userfs partition %zu already formatted as BTRFS\n", userfs_part->partno);
         break;
     case FS_TYPE_EXT4:
-        printf("Userfs partition %zu already formatted as EXT4, skipping\n",
-               userfs_part->partno);
+        printf("Userfs partition %zu already formatted as EXT4\n", userfs_part->partno);
         break;
     case FS_TYPE_UNKNOWN:
     default:
         do_format_btrfs = true;
         break;
+    }
+
+    if (args->flags & FLAG_USERFS_FORCE_FORMAT) {
+        do_format_btrfs = true;
+        LOG("Userfs partition (%s) will be formatted to BTRFS due to force flag\n",
+            userfs_part_device);
     }
 
     if (do_format_btrfs) {
@@ -104,11 +97,10 @@ int step2_create_btrfs_filesystem(struct args *args, struct disk_info *disk, siz
             NULL,
         };
 
-        command_display(mkfs_args[0], (char *const *)mkfs_args);
         ret = command_run(NULL, NULL, mkfs_args[0], (char *const *)mkfs_args);
         LOG("mkfs.btrfs returned: %d\n", ret);
         if (ret < 0) {
-            fprintf(stderr, "Failed to create BTRFS filesystem: %s\n", strerror(errno));
+            ERR("Failed to create BTRFS filesystem: %s\n", strerror(errno));
             goto exit;
         }
 
@@ -159,8 +151,6 @@ int step2_create_btrfs_filesystem(struct args *args, struct disk_info *disk, siz
 
             LOG("Creating BTRFS subvolume: %s\n", sv_name);
 
-            command_display(btrfs_create_subvolumes[0],
-                            (char *const *)btrfs_create_subvolumes);
             ret = command_run(NULL,
                               NULL,
                               btrfs_create_subvolumes[0],

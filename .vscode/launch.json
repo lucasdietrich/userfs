@@ -6,7 +6,7 @@
       "cwd": "${workspaceFolder}",
       "environment": [],
       "miDebuggerPath": "/usr/bin/gdb-multiarch",
-      "miDebuggerServerAddress": "192.168.10.70:1234",
+      "miDebuggerServerAddress": "192.168.10.180:1234",
       "name": "Remote debug userfs",
       "program": "${workspaceFolder}/build/userfs",
       "request": "launch",

@@ -13,6 +13,7 @@ if [[ "${1:-}" == "--debug" ]]; then
   shift
 fi
 
+# qemu-arm
 qemu-aarch64 \
 -L "$SDKTARGETSYSROOT" \
   ${QEMU_ARG_GDB:-} \

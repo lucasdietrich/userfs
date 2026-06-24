@@ -19,19 +19,24 @@
 #include <libfdisk/libfdisk.h>
 
 #define MAX_DOS_PARTITIONS       4u
-#define MAX_SUPPORTED_PARTITIONS 6u
+#define MAX_SUPPORTED_PARTITIONS 12u
+
+// TODO move to another header
+#define USERFS_PART_LABEL "userfs"
 
 enum fs_type {
     FS_TYPE_UNKNOWN = 0,
     FS_TYPE_BTRFS   = 1,
     FS_TYPE_EXT4    = 2,
     FS_TYPE_SWAP    = 3,
+    FS_TYPE_VFAT    = 4,
 };
 
 struct fs_info {
     enum fs_type type;
-    char uuid[37u]; // UUID is 36 characters + null terminator
     char _reversed[3];
+    char uuid[37u]; // UUID is 36 characters + null terminator
+    char part_label[64u];
 };
 
 
@@ -43,8 +48,10 @@ struct part_info {
     int used;
     int type; // type code, Linux, Swap, Extended, FAT32, ...
     const char *type_name;
+    const char *part_label;
 
     /* FS informations if any */
+    bool fs_probed;
     struct fs_info fs_info;
 };
 
@@ -67,6 +74,12 @@ int disk_partprobe(const char *device);
 
 void disk_clear_info(struct disk_info *disk);
 
-ssize_t disk_part_build_path(char *buf, size_t buf_len, size_t partno);
+ssize_t disk_part_build_path(const char *device,
+                            char *buf,
+                            size_t buf_len,
+                            size_t partno);
+
+struct part_info *disk_find_partition_by_label(struct disk_info *disk,
+                                               const char *partlabel);
 
 #endif /* USERFS_DISK_H */

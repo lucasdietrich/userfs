@@ -1,0 +1,146 @@
+Probing filesystem on /dev/mmcblk0p1
+        Partition Label: fsbl1
+Probing filesystem on /dev/mmcblk0p2
+root@dk2:~# ./userfs -v
+Probing filesystem on /dev/mmcblk0p1
+        Partition Label: fsbl1
+Probing filesystem on /dev/mmcblk0p2
+        Partition Label: fsbl2
+Probing filesystem on /dev/mmcblk0p3
+        Partition Label: tee-header
+Probing filesystem on /dev/mmcblk0p4
+        Partition Label: tee-pager
+Probing filesystem on /dev/mmcblk0p5
+        Partition Label: tee-pageable
+Probing filesystem on /dev/mmcblk0p6
+        Partition Label: u-boot
+Probing filesystem on /dev/mmcblk0p7
+        Partition Label: u-boot-env
+Probing filesystem on /dev/mmcblk0p8
+        Filesystem UUID: 03DF-3B05
+        Partition Label: bootfs
+Probing filesystem on /dev/mmcblk0p9
+        Filesystem UUID: 2fecb737-9cfa-4876-ba35-b6331587bec6
+        Partition Label: rootfs
+Disk Information (type: 2, parts: 9)
+        Total: 31176704 sectors (15223 MB)
+        Free: 30613718 sectors (14948 MB)
+[0] Linux filesystem (00) start: 34 end: 545 size: 512 (0 MB)
+        PARTLABEL: fsbl1 [unknown]
+[1] Linux filesystem (00) start: 546 end: 1057 size: 512 (0 MB)
+        PARTLABEL: fsbl2 [unknown]
+[2] Linux filesystem (00) start: 1058 end: 1065 size: 8 (0 MB)
+        PARTLABEL: tee-header [unknown]
+[3] Linux filesystem (00) start: 1066 end: 1577 size: 512 (0 MB)
+        PARTLABEL: tee-pager [unknown]
+[4] Linux filesystem (00) start: 1578 end: 3625 size: 2048 (1 MB)
+        PARTLABEL: tee-pageable [unknown]
+[5] Linux filesystem (00) start: 3626 end: 5673 size: 2048 (1 MB)
+        PARTLABEL: u-boot [unknown]
+[6] Linux filesystem (00) start: 5674 end: 5929 size: 256 (0 MB)
+        PARTLABEL: u-boot-env [unknown]
+[7] Linux filesystem (00) start: 5930 end: 38697 size: 32768 (16 MB)
+        PARTLABEL: bootfs UUID: 03DF-3B05 [unknown]
+[8] Linux filesystem (00) start: 38698 end: 562985 size: 524288 (256 MB)
+        PARTLABEL: rootfs UUID: 2fecb737-9cfa-4876-ba35-b6331587bec6 [ext4]
+(GPT) Looking for userfs partition with label 'userfs'
+Creating partition with label 'userfs' as partition number 9
+Creating userfs partition: start=562986, end=31176703, size=30613718
+Adding partition: 9 start: 562986 end: 31176703 size: 30613718
+Disk Information (type: 2, parts: 10)
+        Total: 31176704 sectors (15223 MB)
+        Free: 4096 sectors (2 MB)
+[0] Linux filesystem (00) start: 34 end: 545 size: 512 (0 MB)
+[1] Linux filesystem (00) start: 546 end: 1057 size: 512 (0 MB)
+[2] Linux filesystem (00) start: 1058 end: 1065 size: 8 (0 MB)
+[3] Linux filesystem (00) start: 1066 end: 1577 size: 512 (0 MB)
+[4] Linux filesystem (00) start: 1578 end: 3625 size: 2048 (1 MB)
+[5] Linux filesystem (00) start: 3626 end: 5673 size: 2048 (1 MB)
+[6] Linux filesystem (00) start: 5674 end: 5929 size: 256 (0 MB)
+[7] Linux filesystem (00) start: 5930 end: 38697 size: 32768 (16 MB)
+[8] Linux filesystem (00) start: 38698 end: 562985 size: 524288 (256 MB)
+[9] Linux filesystem (00) start: 562986 end: 31172607 size: 30609622 (14946 MB)
+Probing filesystem on /dev/mmcblk0p1
+        Partition Label: fsbl1
+Probing filesystem on /dev/mmcblk0p2
+        Partition Label: fsbl2
+Probing filesystem on /dev/mmcblk0p3
+        Partition Label: tee-header
+Probing filesystem on /dev/mmcblk0p4
+        Partition Label: tee-pager
+Probing filesystem on /dev/mmcblk0p5
+        Partition Label: tee-pageable
+Probing filesystem on /dev/mmcblk0p6
+        Partition Label: u-boot
+Probing filesystem on /dev/mmcblk0p7
+        Partition Label: u-boot-env
+Probing filesystem on /dev/mmcblk0p8
+        Filesystem UUID: 03DF-3B05
+        Partition Label: bootfs
+Probing filesystem on /dev/mmcblk0p9
+        Filesystem UUID: 2fecb737-9cfa-4876-ba35-b6331587bec6
+        Partition Label: rootfs
+Probing filesystem on /dev/mmcblk0p10
+        Filesystem UUID: 2379fe25-9377-4559-ba29-6be5021bd826
+        Partition Label: userfs
+Disk Information (type: 2, parts: 10)
+        Total: 31176704 sectors (15223 MB)
+        Free: 4096 sectors (2 MB)
+[0] Linux filesystem (00) start: 34 end: 54[  679.081640] BTRFS: device fsid 2379fe25-9377-4559-ba29-6be5021bd826 devid 1 transid 7 /dev/mmcblk0p10 (179:10) scanned by userfs (560)
+5 size: 512 (0 MB)
+        PARTLABEL: fsbl1 [u[  679.097586] BTRFS info (device mmcblk0p10): first mount of filesystem 2379fe25-9377-4559-ba29-6be5021bd826
+[  679.107212] BTRFS info (device mmcblk0p10): using crc32c (crc32c-lib) checksum algorithm
+nknown]
+[1] Linux filesystem (00) start: 546 end: 1057 size: 512 (0 MB)
+        PARTLABEL: fsbl2 [unknown]
+[2] Linux filesystem (00) start: 1058 end: 1065 size: 8 (0 MB)
+        PARTLABEL: tee-header [unknown]
+[3] Linux filesystem (00) start[  679.135784] BTRFS info (device mmcblk0p10): enabling ssd optimizations
+[  679.142033] BTRFS info (device mmcblk0p10): turning on async discard
+[  679.148295] BTRFS info (device mmcblk0p10): enabling free space tree
+: 1066 end: 1577 size: 512 (0 MB)
+        PARTLABEL: tee-pager [unknown]
+[4] Linux filesystem (00) start: 1578 end: 3625 size: 2048 (1 MB)
+        PARTLABEL: tee-pageable [unknown]
+[5] Linux filesystem (00) start: 3626 end: 5673 size: 2048 (1 MB)
+        PARTLABEL: u-boot [unknown]
+[6] Linux filesystem (00) start: 5674 end: 5929 size: 256 (0 MB)
+        PARTLABEL: u-boot-env [unknown]
+[7] Linux filesystem (00) start: 5930 end: 38697 size: 32768 (16 MB)
+        PARTLABEL: bootfs UUID: 03DF-3B05 [unknown]
+[8] Linux filesystem (00) start: 38698 end: 562985 size: 524288 (256 MB)
+        PARTLABEL: rootfs UUID: 2fecb737-9cfa-4876-ba35-b6331587bec6 [ext4]
+[9] Linux filesystem (00) start: 562986 end: 31172607 size: 30609622 (14946 MB)
+        PARTLABEL: userfs UUID: 2379fe25-9377-4559-ba29-6be5021bd826 [btrfs]
+Userfs partition device: /dev/mmcblk0p10
+Probing filesystem on /dev/mmcblk0p10
+        Filesystem UUID: 2379fe25-9377-4559-ba29-6be5021bd826
+        Partition Label: userfs
+Filesystem Info:
+  Type: btrfs
+  UUID: 2379fe25-9377-4559-ba29-6be5021bd826
+  PARTLABEL: userfs
+Userfs partition 9 already formatted as BTRFS, skipping
+Mounting BTRFS filesystem on /mnt/userfs
+Creating overlayfs directories: upper=/mnt/userfs/vol-config/etc, work=/mnt/userfs/vol-config/.work.etc
+Creating directory: /mnt/userfs/vol-config/etc
+Creating directory: /mnt/userfs/vol-config/.work.etc
+Creating overlayfs mount point: /etc
+Mounting overlayfs on /etc with options: lowerdir=/etc,upperdir=/mnt/userfs/vol-config/etc,workdir=/mnt/userfs/vol-config/.work.etc
+Creating directory: /etc
+Directory already exists: /etc
+Creating overlayfs directories: upper=/mnt/userfs/vol-data/var, work=/mnt/userfs/vol-data/.work.var
+Creating directory: /mnt/userfs/vol-data/var
+Creating directory: /mnt/userfs/vol-data/.work.var
+Creating overlayfs mount point: /var
+Mounting overlayfs on /var with options: lowerdir=/var,upperdir=/mnt/userfs/vol-data/var,workdir=/mnt/userfs/vol-data/.work.var
+Creating directory: /var
+Directory already exists: /var
+Creating overlayfs directories: upper=/mnt/userfs/vol-data/home, work=/mnt/userfs/vol-data/.work.home
+Creating directory: /mnt/userfs/vol-data/home
+Creating directory: /mnt/userfs/vol-data/.work.home
+Creating overlayfs mount point: /home
+Mounting overlayfs on /home with options: lowerdir=/home,upperdir=/mnt/userfs/vol-data/home,workdir=/mnt/userfs/vol-data/.work.home
+Creating directory: /home
+Directory already exists: /home
+Mounting tmpfs on /var/volatile with mode 0755

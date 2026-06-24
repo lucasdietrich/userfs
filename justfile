@@ -14,15 +14,15 @@ clang-format:
 
 builddir := "build"
 exe := "build/userfs"
-target := "rpi3"
+target := "amy"
 
 # Setup, runs only if builddir or ninja file is missing
 setup:
   if [ ! -f {{builddir}}/build.ninja ]; then \
     meson {{builddir}} --buildtype=debug \
-        -Dswap=true \
-        -Dswap_partno=4 \
-        -Duserfs_partno=5 \
+        -Ddefault_block_device_name=/dev/mmcblk0 \
+        -Dpartition_table=gpt \
+        -Doverlay_opt=true; \
   fi
 
 setup_sdd:
@@ -32,7 +32,7 @@ setup_sdd:
         -Dswap_partno=4 \
         -Duserfs_partno=5 \
         -Dblock_device_type=disk \
-        -Dblock_device_name=/dev/sdd; \
+      -Ddefault_block_device_name=/dev/sdd; \
   fi
 
 reconfigure:

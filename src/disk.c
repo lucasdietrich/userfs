@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "disk.h"
+#include "fs.h"
 #include "userfs.h"
 
 #include <stdint.h>
@@ -13,11 +15,14 @@
 #include <blkid.h>
 #include <fcntl.h>
 #include <libfdisk.h>
+#include <linux/blkpg.h>
 #include <linux/fs.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-#if USERFS_PART_NO >= MAX_SUPPORTED_PARTITIONS
+#define DO_BLKID_PROBE 1
+
+#if defined(USERFS_PART_NO) && (USERFS_PART_NO >= MAX_SUPPORTED_PARTITIONS)
 #error "USERFS_PART_NO exceeds maximum supported partitions"
 #endif
 
@@ -43,21 +48,21 @@ static int disk_get_size(const char *device, uint64_t *size)
     fd = open(device, O_RDWR);
     if (fd < 0) {
         perror("open");
-        fprintf(stderr, "Failed to open device\n");
+        ERR("Failed to open device\n");
         goto exit;
     }
 
     ret = ioctl(fd, BLKGETSIZE64, size);
     if (ret < 0) {
         perror("ioctl BLKGETSIZE64");
-        fprintf(stderr, "Failed to get device size\n");
+        ERR("Failed to get device size\n");
         goto exit;
     }
 
     ret = close(fd);
     if (ret < 0) {
         perror("close");
-        fprintf(stderr, "Failed to close device\n");
+        ERR("Failed to close device\n");
         goto exit;
     }
 
@@ -69,7 +74,9 @@ exit:
 
 static int disk_read_partitions(struct fdisk_context *ctx,
                                 struct fdisk_label *label,
-                                struct disk_info *disk)
+                                struct disk_info *disk,
+                                const char *device,
+                                bool do_blkid_probe)
 {
     disk->type          = fdisk_label_get_type(label);
     disk->total_sectors = fdisk_get_nsectors(ctx);
@@ -105,6 +112,30 @@ static int disk_read_partitions(struct fdisk_context *ctx,
         pinfo->type_name = fdisk_parttype_get_name(pt);
 
         ASSERT(indox == pinfo->partno, "Partition index must match partition number");
+
+        if (do_blkid_probe) {
+            // inspect the partition info after changes
+            char dev[PATH_MAX];
+            int ret = disk_part_build_path(device, dev, sizeof(dev), pinfo->partno);
+            if (ret < 0) {
+                fprintf(stderr,
+                        "Failed to build userfs partition path: %s\n",
+                        strerror(errno));
+                return ret;
+            }
+
+            ret = fs_probe(dev, &pinfo->fs_info);
+            if (ret != 0) {
+                fprintf(stderr,
+                        "Failed to probe filesystem on %s: %s\n",
+                        dev,
+                        strerror(errno));
+                return ret;
+            }
+            pinfo->fs_probed = true;
+        } else {
+            pinfo->fs_probed = false;
+        }
     }
 
     disk->last_used_partno = 0;
@@ -112,6 +143,7 @@ static int disk_read_partitions(struct fdisk_context *ctx,
         if (disk->partitions[partno].used) disk->last_used_partno = partno;
     }
 
+    disk->partition_count  = disk->last_used_partno + 1;
     disk->next_free_sector = disk->partitions[disk->last_used_partno].end + 1;
     disk->free_sectors     = disk->total_sectors - disk->next_free_sector;
     disk->free_size        = (uint64_t)disk->free_sectors * SECTOR_SIZE;
@@ -121,9 +153,9 @@ static int disk_read_partitions(struct fdisk_context *ctx,
 
 static void disk_display_info(const struct disk_info *disk)
 {
-    LOG("Disk Information (type: %d, parts: %u)\n", disk->type, disk->partition_count);
-    LOG("\tTotal: %llu sectors (%llu MB)\n", disk->total_sectors, disk->total_size / MB);
-    LOG("\tFree: %u sectors (%llu MB)\n", disk->free_sectors, disk->free_size / MB);
+    LOG("Disk Information (type: %d, parts: %zu)\n", disk->type, disk->partition_count);
+    LOG("\tTotal: %llu sectors (%llu MB)\n", (unsigned long long)disk->total_sectors, (unsigned long long)(disk->total_size / MB));
+    LOG("\tFree: %zu sectors (%llu MB)\n", disk->free_sectors, (unsigned long long)(disk->free_size / MB));
 
     for (size_t n = 0; n < disk->partition_count; n++) {
         const struct part_info *pinfo = &disk->partitions[n];
@@ -134,7 +166,7 @@ static void disk_display_info(const struct disk_info *disk)
 
         uint64_t approx_size_mb = pinfo->size * SECTOR_SIZE / MB;
 
-        LOG("[%zu] %s (%02zx) start: %llu end: %llu size: %llu (%llu MB)\n",
+        LOG("[%zu] %s (%02x) start: %llu end: %llu size: %llu (%llu MB)\n",
             pinfo->partno,
             pinfo->type_name,
             pinfo->type,
@@ -142,26 +174,17 @@ static void disk_display_info(const struct disk_info *disk)
             (unsigned long long)pinfo->end,
             (unsigned long long)pinfo->size,
             (unsigned long long)approx_size_mb);
+        if (pinfo->fs_probed) {
+            LOG("\t");
+            fs_info_display_inline(&pinfo->fs_info);
+        }
     }
-}
-
-static int disk_delete_part(struct fdisk_context *ctx, int partno)
-{
-    printf("Deleting partition %d\n", partno);
-    int ret;
-    // Delete the old 4th partition
-    ret = fdisk_delete_partition(ctx, partno);
-    if (ret != 0) {
-        fprintf(stderr, "Failed to delete old 4th partition\n");
-    }
-
-    return ret;
 }
 
 static int
 disk_add_part(struct fdisk_context *ctx, struct fdisk_label *label, struct part_info *new)
 {
-    printf("Adding partition: %d start: %llu end: %llu size: %llu\n",
+    printf("Adding partition: %zu start: %llu end: %llu size: %llu\n",
            new->partno,
            (unsigned long long)new->start,
            (unsigned long long)new->end,
@@ -172,7 +195,7 @@ disk_add_part(struct fdisk_context *ctx, struct fdisk_label *label, struct part_
 
     struct fdisk_partition *part = fdisk_new_partition();
     if (!part) {
-        fprintf(stderr, "Failed to create new partition\n");
+        ERR("Failed to create new partition\n");
         goto exit;
     }
 
@@ -180,9 +203,11 @@ disk_add_part(struct fdisk_context *ctx, struct fdisk_label *label, struct part_
     fdisk_partition_set_start(part, new->start);
     fdisk_partition_set_size(part, new->size);
 
+    if (new->part_label) fdisk_partition_set_name(part, new->part_label);
+
     pt = fdisk_label_get_parttype_from_code(label, new->type);
     if (!pt) {
-        fprintf(stderr, "Failed to get partition type\n");
+        ERR("Failed to get partition type\n");
         goto exit;
     }
 
@@ -191,7 +216,7 @@ disk_add_part(struct fdisk_context *ctx, struct fdisk_label *label, struct part_
     size_t cur_partno = (size_t)-1;
     ret               = fdisk_add_partition(ctx, part, &cur_partno);
     if (ret != 0) {
-        fprintf(stderr, "Failed to add partition\n");
+        ERR("Failed to add partition\n");
         goto exit;
     }
 
@@ -203,6 +228,7 @@ exit:
     return ret;
 }
 
+#if USERFS_PARTITION_TABLE_DOS
 /* Create a new primary partition on the disk, using the rest of the free space */
 static int disk_dos_add_userfs_as_new_primary_partition(struct fdisk_context *ctx,
                                                         struct fdisk_label *label,
@@ -234,18 +260,18 @@ static int disk_dos_add_userfs_as_new_primary_partition(struct fdisk_context *ct
 
     ret = disk_add_part(ctx, label, new);
     if (ret != 0) {
-        fprintf(stderr, "Failed to add userfs partition\n");
+        ERR("Failed to add userfs partition\n");
         goto exit;
     }
 
     disk_clear_info(disk);
-    ret = disk_read_partitions(ctx, label, disk);
+    ret = disk_read_partitions(ctx, label, disk, NULL, false);
     ASSERT(ret == 0, "Failed to read partitions after deletion");
     disk_display_info(disk);
 
     ret = fdisk_write_disklabel(ctx);
     if (ret != 0) {
-        fprintf(stderr, "Failed to write disk label\n");
+        ERR("Failed to write disk label\n");
         goto exit;
     }
 
@@ -270,14 +296,17 @@ static int disk_dos_extend_partition_add_userfs(struct fdisk_context *ctx,
     struct part_info *old = &disk->partitions[3];
     size_t old_size       = old->size;
     int old_type          = old->type;
-    ret                   = disk_delete_part(ctx, old->partno);
+
+    // Delete the old 4th partition
+    printf("Deleting partition %d\n", partno);
+    ret = fdisk_delete_partition(ctx, old->partno);
     if (ret != 0) {
-        fprintf(stderr, "Failed to delete old partition\n");
+        ERR("Failed to delete old 4th partition\n");
         goto exit;
     }
 
     disk_clear_info(disk);
-    ret = disk_read_partitions(ctx, label, disk);
+    ret = disk_read_partitions(ctx, label, disk, NULL, false);
     ASSERT(ret == 0, "Failed to read partitions after deletion");
     disk_display_info(disk);
 
@@ -294,12 +323,12 @@ static int disk_dos_extend_partition_add_userfs(struct fdisk_context *ctx,
 
     ret = disk_add_part(ctx, label, ext);
     if (ret != 0) {
-        fprintf(stderr, "Failed to add extended partition\n");
+        ERR("Failed to add extended partition\n");
         goto exit;
     }
 
     disk_clear_info(disk);
-    ret = disk_read_partitions(ctx, label, disk);
+    ret = disk_read_partitions(ctx, label, disk, NULL, false);
     ASSERT(ret == 0, "Failed to read partitions after deletion");
     disk_display_info(disk);
 
@@ -312,12 +341,12 @@ static int disk_dos_extend_partition_add_userfs(struct fdisk_context *ctx,
 
     ret = disk_add_part(ctx, label, moved);
     if (ret != 0) {
-        fprintf(stderr, "Failed to re-add moved partition\n");
+        ERR("Failed to re-add moved partition\n");
         goto exit;
     }
 
     disk_clear_info(disk);
-    ret = disk_read_partitions(ctx, label, disk);
+    ret = disk_read_partitions(ctx, label, disk, NULL, false);
     ASSERT(ret == 0, "Failed to read partitions after moved add");
     disk_display_info(disk);
 
@@ -330,12 +359,12 @@ static int disk_dos_extend_partition_add_userfs(struct fdisk_context *ctx,
 
     ret = disk_add_part(ctx, label, new);
     if (ret != 0) {
-        fprintf(stderr, "Failed to add userfs partition\n");
+        ERR("Failed to add userfs partition\n");
         goto exit;
-    }
+    }   
 
     disk_clear_info(disk);
-    ret = disk_read_partitions(ctx, label, disk);
+    ret = disk_read_partitions(ctx, label, disk, NULL, false);
     ASSERT(ret == 0, "Failed to read partitions after userfs add");
     disk_display_info(disk);
 
@@ -343,6 +372,12 @@ static int disk_dos_extend_partition_add_userfs(struct fdisk_context *ctx,
     disk->next_free_sector = disk->total_size;
     disk->free_sectors     = 0u;
     disk->free_size        = 0u;
+
+    ret = fdisk_write_disklabel(ctx);
+    if (ret != 0) {
+        ERR("Failed to write disk label\n");
+        goto exit;
+    }
 
 exit:
     return ret;
@@ -375,12 +410,12 @@ static int disk_dos_create_userfs_partition(struct fdisk_context *ctx,
     struct part_info *userfs = &disk->partitions[desired_partno];
 
     if (userfs->used) {
-        fprintf(stderr, "Partition %zu is already defined\n", userfs->partno);
+        ERR("Partition %zu is already defined\n", userfs->partno);
         return 1;
     }
 
     if (disk->free_sectors < USERFS_MIN_SIZE_S) {
-        fprintf(stderr, "Not enough free space for userfs partition\n");
+        ERR("Not enough free space for userfs partition\n");
         goto exit;
     }
 
@@ -388,7 +423,7 @@ static int disk_dos_create_userfs_partition(struct fdisk_context *ctx,
         /* Primary partitions */
         ret = disk_dos_add_userfs_as_new_primary_partition(ctx, label, disk);
         if (ret != 0) {
-            fprintf(stderr, "Failed to create primary partition\n");
+            ERR("Failed to create primary partition\n");
             goto exit;
         }
 
@@ -396,24 +431,140 @@ static int disk_dos_create_userfs_partition(struct fdisk_context *ctx,
         /* Need extended + logical partitions */
         ret = disk_dos_extend_partition_add_userfs(ctx, label, disk);
         if (ret != 0) {
-            fprintf(stderr, "Failed to extend partition\n");
+            ERR("Failed to extend partition\n");
             goto exit;
         }
     } else {
-        fprintf(stderr, "Unsupported partition number %zu\n", desired_partno);
+        ERR("Unsupported partition number %zu\n", desired_partno);
         ret = -1;
-        goto exit;
-    }
-
-    ret = fdisk_write_disklabel(ctx);
-    if (ret != 0) {
-        fprintf(stderr, "Failed to write disk label\n");
         goto exit;
     }
 
 exit:
     return ret;
 }
+#endif
+
+#if USERFS_PARTITION_TABLE_GPT
+/* Create a new primary partition on the disk, using the rest of the free space */
+static int disk_gpt_add_userfs_partition(struct fdisk_context *ctx,
+                                         struct fdisk_label *label,
+                                         struct disk_info *disk)
+{
+    ASSERT(disk->type == FDISK_DISKLABEL_DOS, "Only DOS partition tables are supported");
+
+    int ret;
+    struct part_info *prev = &disk->partitions[disk->last_used_partno];
+    struct part_info *new  = &disk->partitions[disk->last_used_partno + 1u];
+
+    new->start      = disk->next_free_sector;
+    new->end        = disk->total_sectors - 1;
+    new->size       = disk->free_sectors;
+    new->used       = 1;
+    new->type       = USERFS_PART_CODE;
+    new->part_label = USERFS_PART_LABEL;
+
+    LOG("Creating userfs partition: start=%llu, end=%llu, size=%llu\n",
+        (unsigned long long)new->start,
+        (unsigned long long)new->end,
+        (unsigned long long)new->size);
+
+    ASSERT(prev->end + 1 == new->start,
+           "Previous partition end does not match current partition start");
+
+    ASSERT(new->end - new->start + 1 == new->size,
+           "Partition size does not match start and end");
+
+    ret = disk_add_part(ctx, label, new);
+    if (ret != 0) {
+        ERR("Failed to add userfs partition\n");
+        goto exit;
+    }
+
+    disk_clear_info(disk);
+    ret = disk_read_partitions(ctx, label, disk, NULL, false);
+    ASSERT(ret == 0, "Failed to read partitions after deletion");
+    disk_display_info(disk);
+
+    ret = fdisk_write_disklabel(ctx);
+    if (ret != 0) {
+        ERR("Failed to write disk label\n");
+        goto exit;
+    }
+
+exit:
+    return ret;
+}
+
+struct part_info *disk_find_partition_by_label(struct disk_info *disk,
+                                               const char *partlabel)
+{
+    for (size_t i = 0; i < disk->partition_count; i++) {
+        struct part_info *pinfo = &disk->partitions[i];
+        if (pinfo->used && strcmp(pinfo->fs_info.part_label, partlabel) == 0) {
+            return pinfo;
+        }
+    }
+    return NULL;
+}
+
+/**
+ * Create a partition on the disk if it does not already exist.
+ *
+ * This function creates a userfs partition using the remaining free space
+ * on the disk. It assumes that the disk partition has been initialized and has enough
+ * free space for the userfs partition.
+ *
+ * @param ctx The fdisk context.
+ * @param label The fdisk label.
+ * @param disk The disk information structure.
+ * @param partlabel The partition label to assign.
+ * @return 0 on success, -1 on failure, 0 if partition was created, 1 if partition already
+ * exists.
+ */
+static int disk_gpt_create_partition_if_not_exist(struct fdisk_context *ctx,
+                                                  struct fdisk_label *label,
+                                                  struct disk_info *disk,
+                                                  const char *partlabel)
+{
+    int ret = -1;
+
+    struct part_info *existing = disk_find_partition_by_label(disk, partlabel);
+    if (existing) {
+        LOG("Partition with label '%s' already exists as partition number %zu\n",
+            partlabel,
+            existing->partno);
+        return 0;
+    }
+
+    size_t desired_partno = disk->last_used_partno + 1u;
+    LOG("Creating partition with label '%s' as partition number %zu\n",
+        partlabel,
+        desired_partno);
+
+    struct part_info *userfs_part = &disk->partitions[desired_partno];
+
+    if (userfs_part->used) {
+        ERR("Partition %zu is already defined\n", userfs_part->partno);
+        return 1;
+    }
+
+    if (disk->free_sectors < USERFS_MIN_SIZE_S) {
+        ERR("Not enough free space for userfs partition\n");
+        goto exit;
+    }
+
+    /* Add GPT partition */
+    ret = disk_gpt_add_userfs_partition(ctx, label, disk);
+    if (ret != 0) {
+        ERR("Failed to create primary partition\n");
+        goto exit;
+    }
+
+exit:
+    return ret;
+}
+#endif
 
 void disk_clear_info(struct disk_info *disk)
 {
@@ -425,8 +576,8 @@ static int disk_delete_userfs_partition(struct fdisk_context *ctx,
 {
     int ret = -1;
 
-    if (!pinfo->used) {
-        LOG("Partition %zu is not in use, nothing to delete\n", pinfo->partno);
+    if (!pinfo || !pinfo->used) {
+        LOG("userfs partition is not in use or does not exist, nothing to delete\n");
         return 0;
     }
 
@@ -434,13 +585,13 @@ static int disk_delete_userfs_partition(struct fdisk_context *ctx,
 
     ret = fdisk_delete_partition(ctx, pinfo->partno);
     if (ret != 0) {
-        fprintf(stderr, "Failed to delete partition %zu\n", pinfo->partno);
+        ERR("Failed to delete partition %zu\n", pinfo->partno);
         return -1;
     }
 
     ret = fdisk_write_disklabel(ctx);
     if (ret != 0) {
-        fprintf(stderr, "Failed to write disk label after deletion\n");
+        ERR("Failed to write disk label after deletion\n");
         return -1;
     }
 
@@ -457,41 +608,42 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
     uint64_t device_size      = 0;
     struct fdisk_context *ctx = NULL;
     struct fdisk_label *label = NULL;
+    const char *device        = args->block_device_name;
 
     fdisk_init_debug(0x0);
     blkid_init_debug(0x0);
 
     ctx = fdisk_new_context();
     if (!ctx) {
-        fprintf(stderr, "Failed to create fdisk context\n");
+        ERR("Failed to create fdisk context\n");
         goto exit;
     }
 
-    if (fdisk_assign_device(ctx, DISK, RO_ENABLED) < 0) {
-        fprintf(stderr, "Failed to assign device\n");
+    if (fdisk_assign_device(ctx, device, RO_ENABLED) < 0) {
+        ERR("Failed to assign device\n");
         goto exit;
     }
 
     label = fdisk_get_label(ctx, "dos");
     if (!label) {
-        fprintf(stderr, "Failed to get label\n");
+        ERR("Failed to get label\n");
         goto exit;
     }
 
     disk->type = fdisk_label_get_type(label);
     if (disk->type != FDISK_DISKLABEL_DOS) {
-        fprintf(stderr, "Unsupported partition table type\n");
+        ERR("Unsupported partition table type\n");
         goto exit;
     }
 
-    ret = disk_read_partitions(ctx, label, disk);
+    ret = disk_read_partitions(ctx, label, disk, device, true);
     if (ret != 0) {
-        fprintf(stderr, "Failed to read disk info\n");
+        ERR("Failed to read disk info\n");
         goto exit;
     }
 
-    if (disk_get_size(DISK, &device_size) != 0) {
-        fprintf(stderr, "Failed to get device size\n");
+    if (disk_get_size(device, &device_size) != 0) {
+        ERR("Failed to get device size\n");
         goto exit;
     }
     ASSERT(device_size == disk->total_size,
@@ -499,63 +651,86 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
 
     disk_display_info(disk);
 
+#if USERFS_PARTITION_TABLE_DOS
+    LOG("(DOS)Looking for userfs partition at partno %zu\n", USERFS_PART_NO);
     struct part_info *userfs_part = &disk->partitions[USERFS_PART_NO];
+#elif USERFS_PARTITION_TABLE_GPT
+    LOG("(GPT) Looking for userfs partition with label '%s'\n", USERFS_PART_LABEL);
+    struct part_info *userfs_part = disk_find_partition_by_label(disk, USERFS_PART_LABEL);
+#endif
+    bool partition_exists = (userfs_part && userfs_part->used);
+    if (partition_exists) {
+        LOG("Userfs partition found: partno %zu\n", userfs_part->partno);
+    } else {
+        LOG("Userfs partition not found\n");
+    }
 
     // If the user asked to delete the userfs partition, do it now
     if (args->flags & FLAG_USERFS_DELETE) {
         ret = disk_delete_userfs_partition(ctx, userfs_part);
         if (ret != 0) {
-            fprintf(stderr, "Failed to delete userfs partition\n");
+            ERR("Failed to delete userfs partition\n");
             goto exit;
         }
 
         // Success - cleanup and return success
         ret = fdisk_deassign_device(ctx, 0);
         if (ret != 0) {
-            fprintf(stderr, "Failed to deassign device\n");
+            ERR("Failed to deassign device\n");
             goto exit;
         }
         fdisk_unref_context(ctx);
 
         // Nothing to do after deletion, exit
         exit(EXIT_SUCCESS);
-    } else {
-        // otherwise try to create the userfs partition if it doesn't exist
-        ret = disk_dos_create_userfs_partition(ctx, label, disk, USERFS_PART_NO);
-        if (ret == 0) {
-            // FIRST BOOT: Userfs partition created successfully:
-            // we prefer to reformat the userfs partition to BTRFS even if it exists
-            // from a previous installation, unless the user asked to trust it
-            // with the -t flag.
-            if (args->flags & FLAG_USERFS_TRUST_RESIDENT) {
-                printf("First boot: Trusting existing userfs partition without "
-                       "formatting\n");
-            } else {
-                printf("First boot: Userfs partition created, formatting to BTRFS\n");
-                args->flags |= FLAG_USERFS_FORCE_FORMAT;
-            }
-        } else if (ret == 1) {
-            // NOT FIRST BOOT: Userfs partition already exists:
-            // we do want to keep the existing userfs partition if it exists
+    } else if (!partition_exists) {
+        // FIRST BOOT: Userfs partition does not exist
+        // we prefer to reformat the userfs partition to BTRFS even if it exists
+        // from a previous installation, unless the user asked to trust it
+        // with the -t flag.
+        if (args->flags & FLAG_USERFS_TRUST_RESIDENT) {
+            printf("First boot: Trusting existing userfs partition without "
+                   "formatting\n");
         } else {
-            fprintf(stderr, "Failed to create userfs partition\n");
-            goto exit;
+            printf("First boot: Userfs partition will be formatted to BTRFS\n");
+            args->flags |= FLAG_USERFS_FORCE_FORMAT;
         }
-
-        // Do sync
-        ret = fdisk_deassign_device(ctx, 0);
+        // otherwise try to create the userfs partition if it doesn't exist
+#if USERFS_PARTITION_TABLE_DOS
+        ret = disk_dos_create_userfs_partition(ctx, label, disk, USERFS_PART_NO);
+#elif USERFS_PARTITION_TABLE_GPT
+        ret = disk_gpt_create_partition_if_not_exist(ctx, label, disk, USERFS_PART_LABEL);
+#endif
         if (ret != 0) {
-            fprintf(stderr, "Failed to deassign device\n");
+            ERR("Failed to create userfs partition\n");
             goto exit;
         }
-        fdisk_unref_context(ctx);
+    } else {
+        LOG("Userfs partition already exists, nothing to do\n");
     }
+
+    // partprobe before disk_read_partitions with do_blkid_probe=true
+    ret = disk_partprobe(device);
+    if (ret < 0) {
+        ERR("Failed to partprobe: %s\n", strerror(errno));
+        goto exit;
+    }
+
+    ret = disk_read_partitions(ctx, label, disk, device, true);
+    if (ret != 0) {
+        ERR("Failed to read disk info\n");
+        goto exit;
+    }
+
+    disk_display_info(disk);
 
     return 0;
 
 exit:
+    // Success - cleanup and return success
     disk_clear_info(disk);
-    if (ctx) fdisk_unref_context(ctx);
+    fdisk_deassign_device(ctx, 0);
+    fdisk_unref_context(ctx);
     return ret;
 }
 
@@ -584,7 +759,7 @@ int disk_partprobe(const char *device)
     return ret;
 }
 
-ssize_t disk_part_build_path(char *buf, size_t buf_len, size_t partno)
+ssize_t disk_part_build_path(const char *device, char *buf, size_t buf_len, size_t partno)
 {
-    return snprintf(buf, buf_len, DISK_PART_FMT, DISK, partno + 1u);
+    return snprintf(buf, buf_len, DISK_PART_FMT, device, partno + 1u);
 }

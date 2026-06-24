@@ -17,20 +17,23 @@
 #include <sys/mount.h>
 #include <unistd.h>
 
-int step4_format_swap_partition(struct args *args, struct disk_info *disk, size_t swap_partno)
+int step4_format_swap_partition(struct args *args,
+                                struct disk_info *disk,
+                                size_t swap_partno)
 {
     (void)args;
     int ret = -1;
 
     if (swap_partno >= disk->partition_count) {
-        fprintf(stderr, "Invalid swap partition number: %d\n", swap_partno);
+        ERR("Invalid swap partition number: %zu\n", swap_partno);
         goto exit;
     }
 
     char swap_part_device[PATH_MAX];
-    ret = disk_part_build_path(swap_part_device, sizeof(swap_part_device), swap_partno);
+    ret = disk_part_build_path(
+        args->block_device_name, swap_part_device, sizeof(swap_part_device), swap_partno);
     if (ret < 0) {
-        fprintf(stderr, "Failed to build swap partition path: %s\n", strerror(errno));
+        ERR("Failed to build swap partition path: %s\n", strerror(errno));
         goto exit;
     }
 
@@ -39,7 +42,7 @@ int step4_format_swap_partition(struct args *args, struct disk_info *disk, size_
     struct part_info *swap_part = &disk->partitions[swap_partno];
     ret                         = fs_probe(swap_part_device, &swap_part->fs_info);
     if (ret < 0) {
-        fprintf(stderr, "Failed to probe swap partition: %s\n", strerror(errno));
+        ERR("Failed to probe swap partition: %s\n", strerror(errno));
         goto exit;
     }
 
@@ -63,11 +66,10 @@ int step4_format_swap_partition(struct args *args, struct disk_info *disk, size_
             NULL,
         };
 
-        command_display(mkswap_args[0], (char *const *)mkswap_args);
         ret = command_run(NULL, NULL, mkswap_args[0], (char *const *)mkswap_args);
         LOG("mkswap returned: %d\n", ret);
         if (ret < 0) {
-            fprintf(stderr, "Failed to create swap space: %s\n", strerror(errno));
+            ERR("Failed to create swap space: %s\n", strerror(errno));
             goto exit;
         }
 

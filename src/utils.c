@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
- 
+
 #include "userfs.h"
 
 #include <stdio.h>
@@ -24,20 +24,20 @@ int create_directory(const char *dir)
             LOG("Directory already exists: %s\n", dir);
             return 0;
         } else {
-            fprintf(stderr, "Path exists but is not a directory: %s\n", dir);
+            ERR("Path exists but is not a directory: %s\n", dir);
             return -1;
         }
     }
 
     if (errno != ENOENT) {
-        fprintf(stderr, "Failed to check directory existence: %s\n", dir);
+        ERR("Failed to check directory existence: %s\n", dir);
         perror("stat");
         return -1;
     }
 
     // Directory does not exist, try to create it
     if (mkdir(dir, 0755) != 0) {
-        fprintf(stderr, "Failed to create directory: %s\n", dir);
+        ERR("Failed to create directory: %s\n", dir);
         perror("mkdir");
         return -1;
     }
@@ -45,19 +45,20 @@ int create_directory(const char *dir)
     return 0;
 }
 
-void command_display(const char *program, char *const argv[])
+static void command_display(const char *program, char *const argv[])
 {
     if (!program || !argv) return;
 
-    printf("Running command: %s ", program);
+    printf("Running command: %s \\\n", program);
     for (int i = 1; argv[i]; i++) {
-        printf("%s ", argv[i]);
+        printf("\t%s \\\n", argv[i]);
     }
-    printf("\n");
 }
 
 int command_run(char *buf, size_t *buflen, const char *program, char *const argv[])
 {
+    command_display(program, argv);
+
     int ret       = -1;
     int pipefd[2] = {-1, -1}; // [0] = read, [1] = write
     pid_t pid;
