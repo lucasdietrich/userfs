@@ -43,6 +43,7 @@ build: setup
 
 deploy: build
   scp {{exe}} {{target}}:~
+  scp build/swap {{target}}:~
 
 replace: build
   scp {{exe}} {{target}}:/usr/bin/userfs

@@ -73,5 +73,13 @@ executable(
   install_dir: 'bin',
 )
 
+executable(
+  'swap',
+  [ 'src/swapfile.c', 'src/utils.c' ],
+  c_args: [ '-D_POSIX_C_SOURCE=200809L' ],
+  include_directories: 'include',
+  install: true,
+  install_dir: 'bin',
+)
 
 
