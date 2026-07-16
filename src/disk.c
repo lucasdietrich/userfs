@@ -734,20 +734,22 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
         }
     }
 
-    // partprobe before disk_read_partitions with do_blkid_probe=true
-    ret = disk_partprobe(device);
-    if (ret < 0) {
-        ERR("Failed to partprobe: %s\n", strerror(errno));
-        goto exit;
-    }
+    if (!partition_exists) {
+        // partprobe before disk_read_partitions with do_blkid_probe=true
+        ret = disk_partprobe(device);
+        if (ret < 0) {
+            ERR("Failed to partprobe: %s\n", strerror(errno));
+            goto exit;
+        }
 
-    ret = disk_read_partitions(ctx, label, disk, device, true);
-    if (ret != 0) {
-        ERR("Failed to read disk info\n");
-        goto exit;
-    }
+        ret = disk_read_partitions(ctx, label, disk, device, true);
+        if (ret != 0) {
+            ERR("Failed to read disk info\n");
+            goto exit;
+        }
 
-    disk_display_info(disk);
+        disk_display_info(disk);
+    }
 
     return 0;
 
