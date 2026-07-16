@@ -49,10 +49,11 @@ static void command_display(const char *program, char *const argv[])
 {
     if (!program || !argv) return;
 
-    printf("Running command: %s \\\n", program);
+    LOG("[ cmd ] %s", program);
     for (int i = 1; argv[i]; i++) {
-        printf("\t%s \\\n", argv[i]);
+        LOG(" %s", argv[i]);
     }
+    LOG("\n");
 }
 
 int command_run(char *buf, size_t *buflen, const char *program, char *const argv[])

@@ -157,7 +157,7 @@ extern int verbose;
 
 struct args {
     uint32_t flags; // Bitmask for flags
-    const char *block_device_name;
+    const char *dev;
 };
 
 #define LOG(fmt, ...)                                                                    \

@@ -151,33 +151,58 @@ static int disk_read_partitions(struct fdisk_context *ctx,
     return 0;
 }
 
+static const char *format_size(uint64_t bytes, char *buf, size_t len)
+{
+    if (bytes >= MB)
+        snprintf(buf, len, "%lluMB", (unsigned long long)(bytes / MB));
+    else if (bytes >= KB)
+        snprintf(buf, len, "%lluKB", (unsigned long long)(bytes / KB));
+    else
+        snprintf(buf, len, "%lluB", (unsigned long long)bytes);
+    return buf;
+}
+
+static const char *disk_label_type_to_string(enum fdisk_labeltype type)
+{
+    switch (type) {
+    case FDISK_DISKLABEL_DOS:
+        return "DOS";
+    case FDISK_DISKLABEL_GPT:
+        return "GPT";
+    case FDISK_DISKLABEL_SUN:
+        return "SUN";
+    case FDISK_DISKLABEL_SGI:
+        return "SGI";
+    default:
+        return "unknown";
+    }
+}
+
 static void disk_display_info(const struct disk_info *disk)
 {
-    LOG("Disk Information (type: %d, parts: %zu)\n", disk->type, disk->partition_count);
-    LOG("\tTotal: %llu sectors (%llu MB)\n", (unsigned long long)disk->total_sectors, (unsigned long long)(disk->total_size / MB));
-    LOG("\tFree: %zu sectors (%llu MB)\n", disk->free_sectors, (unsigned long long)(disk->free_size / MB));
+    LOG("[ disk ] type: %s sectors: %llu sector_size: %uB total: %lluMB free: %lluMB parts: %zu\n",
+        disk_label_type_to_string(disk->type),
+        (unsigned long long)disk->total_sectors,
+        SECTOR_SIZE,
+        (unsigned long long)(disk->total_size / MB),
+        (unsigned long long)(disk->free_size / MB),
+        disk->partition_count);
 
     for (size_t n = 0; n < disk->partition_count; n++) {
         const struct part_info *pinfo = &disk->partitions[n];
 
-        if (!pinfo->used) {
-            continue;
-        }
+        if (!pinfo->used) continue;
 
-        uint64_t approx_size_mb = pinfo->size * SECTOR_SIZE / MB;
+        char size_str[32];
+        format_size(pinfo->size * SECTOR_SIZE, size_str, sizeof(size_str));
 
-        LOG("[%zu] %s (%02x) start: %llu end: %llu size: %llu (%llu MB)\n",
+        LOG("[ part %2zu ] %-20s (0x%02x) start: %-12llu end: %-12llu size: %s\n",
             pinfo->partno,
-            pinfo->type_name,
+            pinfo->type_name ? pinfo->type_name : "?",
             pinfo->type,
             (unsigned long long)pinfo->start,
             (unsigned long long)pinfo->end,
-            (unsigned long long)pinfo->size,
-            (unsigned long long)approx_size_mb);
-        if (pinfo->fs_probed) {
-            LOG("\t");
-            fs_info_display_inline(&pinfo->fs_info);
-        }
+            size_str);
     }
 }
 
@@ -608,7 +633,7 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
     uint64_t device_size      = 0;
     struct fdisk_context *ctx = NULL;
     struct fdisk_label *label = NULL;
-    const char *device        = args->block_device_name;
+    const char *device        = args->dev;
 
     fdisk_init_debug(0x0);
     blkid_init_debug(0x0);
@@ -652,18 +677,20 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
     disk_display_info(disk);
 
 #if USERFS_PARTITION_TABLE_DOS
-    LOG("(DOS)Looking for userfs partition at partno %zu\n", USERFS_PART_NO);
     struct part_info *userfs_part = &disk->partitions[USERFS_PART_NO];
+    const char *userfs_label      = "-";
 #elif USERFS_PARTITION_TABLE_GPT
-    LOG("(GPT) Looking for userfs partition with label '%s'\n", USERFS_PART_LABEL);
     struct part_info *userfs_part = disk_find_partition_by_label(disk, USERFS_PART_LABEL);
+    const char *userfs_label      = USERFS_PART_LABEL;
 #endif
     bool partition_exists = (userfs_part && userfs_part->used);
-    if (partition_exists) {
-        LOG("Userfs partition found: partno %zu\n", userfs_part->partno);
-    } else {
-        LOG("Userfs partition not found\n");
-    }
+    char partno_str[8];
+    if (partition_exists)
+        snprintf(partno_str, sizeof(partno_str), "%zu", userfs_part->partno);
+    else
+        snprintf(partno_str, sizeof(partno_str), "-");
+    LOG("[ userfs ] label: %-16s partno: %-4s status: %s\n",
+        userfs_label, partno_str, partition_exists ? "exists" : "not found");
 
     // If the user asked to delete the userfs partition, do it now
     if (args->flags & FLAG_USERFS_DELETE) {
@@ -705,8 +732,6 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
             ERR("Failed to create userfs partition\n");
             goto exit;
         }
-    } else {
-        LOG("Userfs partition already exists, nothing to do\n");
     }
 
     // partprobe before disk_read_partitions with do_blkid_probe=true

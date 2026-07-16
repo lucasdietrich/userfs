@@ -43,7 +43,7 @@ int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_pa
     // inspect the partition info after changes
     char userfs_part_device[PATH_MAX];
     ret = disk_part_build_path(
-        args->block_device_name,
+        args->dev,
         userfs_part_device,
         sizeof(userfs_part_device),
         userfs_part->partno);

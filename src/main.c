@@ -61,7 +61,7 @@ static int parse_args(int argc, char *argv[], struct args *args)
             print_usage(argv[0]);
             exit(EXIT_SUCCESS);
         case 'b':
-            args->block_device_name = optarg;
+            args->dev = optarg;
             break;
         case 'd':
             args->flags |= FLAG_USERFS_DELETE;
@@ -97,7 +97,7 @@ int main(int argc, char *argv[])
     int ret               = -1;
     struct disk_info disk = {0};
     struct args args      = {
-        .block_device_name = DEFAULT_DISK,
+        .dev = DEFAULT_DISK,
     };
 
     ret = parse_args(argc, argv, &args);
@@ -106,10 +106,8 @@ int main(int argc, char *argv[])
         goto exit;
     }
 
-    printf("Manage userfs partition on %s\n\n", args.block_device_name);
-
     // partprob
-    ret = disk_partprobe(args.block_device_name);
+    ret = disk_partprobe(args.dev);
     if (ret < 0) {
         ERR("Failed to partprobe: %s\n", strerror(errno));
         goto exit;

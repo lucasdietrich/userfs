@@ -4,6 +4,23 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+static const char *fs_type_to_string(enum fs_type type)
+{
+    switch (type) {
+    case FS_TYPE_BTRFS:
+        return "btrfs";
+    case FS_TYPE_EXT4:
+        return "ext4";
+    case FS_TYPE_SWAP:
+        return "swap";
+    case FS_TYPE_VFAT:
+        return "vfat";
+    case FS_TYPE_UNKNOWN:
+    default:
+        return "unknown";
+    }
+}
+
 int fs_probe(const char *part_device, struct fs_info *info)
 {
     int ret        = -1;
@@ -23,8 +40,6 @@ int fs_probe(const char *part_device, struct fs_info *info)
         ERR("Failed to create blkid probe\n");
         goto exit;
     }
-
-    LOG("Probing filesystem on %s\n", part_device);
 
     fd = open(part_device, 0); // Read-only mode
     if (fd < 0) {
@@ -87,22 +102,26 @@ int fs_probe(const char *part_device, struct fs_info *info)
     if (fs_uuid) {
         strncpy(info->uuid, fs_uuid, sizeof(info->uuid) - 1);
         info->uuid[sizeof(info->uuid) - 1] = '\0'; // Ensure null termination
-        LOG("\tFilesystem UUID: %s\n", info->uuid);
     }
 
 #if USERFS_PARTITION_TABLE_GPT
     (void)blkid_probe_lookup_value(pr, "PART_ENTRY_NAME", &part_label, &len);
     if (!part_label) {
         (void)blkid_probe_lookup_value(pr, "PARTLABEL", &part_label, &len);
-        LOG("\tUsing PARTLABEL instead of PART_ENTRY_NAME\n");
     }
 
     if (part_label) {
         strncpy(info->part_label, part_label, sizeof(info->part_label) - 1);
         info->part_label[sizeof(info->part_label) - 1] = '\0'; // Ensure null termination
-        LOG("\tPartition Label: %s\n", info->part_label);
     }
 #endif
+
+    LOG("[ part %-18s ] PARTLABEL: %-16s",
+        part_device,
+        info->part_label[0] ? info->part_label : "-");
+    if (info->uuid[0]) LOG(" UUID: %-36s", info->uuid);
+    if (info->type != FS_TYPE_UNKNOWN) LOG(" type: %s", fs_type_to_string(info->type));
+    LOG("\n");
 
     ret = 0;
 
@@ -112,36 +131,22 @@ exit:
     return ret;
 }
 
-static const char *fs_type_to_string(enum fs_type type)
-{
-    switch (type) {
-    case FS_TYPE_BTRFS:
-        return "btrfs";
-    case FS_TYPE_EXT4:
-        return "ext4";
-    case FS_TYPE_SWAP:
-        return "swap";
-    case FS_TYPE_UNKNOWN:
-    default:
-        return "unknown";
-    }
-}
-
 void fs_info_display(const struct fs_info *info)
 {
     if (!info) return;
 
-    LOG("Filesystem Info:\n");
-    LOG("  Type: %s\n", fs_type_to_string(info->type));
-    LOG("  UUID: %s\n", info->uuid[0] ? info->uuid : "Not set");
-    LOG("  PARTLABEL: %s\n", info->part_label[0] ? info->part_label : "Not set");
+    LOG("[ fs ] type: %-8s PARTLABEL: %-16s UUID: %-36s\n",
+        fs_type_to_string(info->type),
+        info->part_label[0] ? info->part_label : "-",
+        info->uuid[0] ? info->uuid : "-");
 }
 
 void fs_info_display_inline(const struct fs_info *info)
 {
     if (!info) return;
 
-    if (info->part_label[0]) LOG("PARTLABEL: %s ", info->part_label);
-    if (info->uuid[0]) LOG("UUID: %s ", info->uuid);
-    LOG("[%s]\n", fs_type_to_string(info->type));
+    LOG("type: %-8s PARTLABEL: %-16s UUID: %-36s\n",
+        fs_type_to_string(info->type),
+        info->part_label[0] ? info->part_label : "-",
+        info->uuid[0] ? info->uuid : "-");
 }

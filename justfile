@@ -22,7 +22,8 @@ setup:
     meson {{builddir}} --buildtype=debug \
         -Ddefault_block_device_name=/dev/mmcblk0 \
         -Dpartition_table=gpt \
-        -Doverlay_opt=true; \
+        -Doverlay_opt=true \
+        -Dswap=true; \
   fi
 
 setup_sdd:

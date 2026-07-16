@@ -31,13 +31,13 @@ int step4_format_swap_partition(struct args *args,
 
     char swap_part_device[PATH_MAX];
     ret = disk_part_build_path(
-        args->block_device_name, swap_part_device, sizeof(swap_part_device), swap_partno);
+        args->dev, swap_part_device, sizeof(swap_part_device), swap_partno);
     if (ret < 0) {
         ERR("Failed to build swap partition path: %s\n", strerror(errno));
         goto exit;
     }
 
-    printf("Formatting swap partition %zu (%s)\n", swap_partno, swap_part_device);
+    LOG("Formatting swap partition %zu (%s)\n", swap_partno, swap_part_device);
 
     struct part_info *swap_part = &disk->partitions[swap_partno];
     ret                         = fs_probe(swap_part_device, &swap_part->fs_info);
@@ -51,7 +51,7 @@ int step4_format_swap_partition(struct args *args,
     bool do_format_swap = false;
     switch (swap_part->fs_info.type) {
     case FS_TYPE_SWAP:
-        printf("Swap partition %zu already formatted, skipping\n", swap_partno);
+        LOG("Swap partition %zu already formatted, skipping\n", swap_partno);
         break;
     case FS_TYPE_UNKNOWN:
     default:

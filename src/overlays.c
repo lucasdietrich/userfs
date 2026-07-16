@@ -135,7 +135,7 @@ int step3_create_overlayfs(struct args *args)
                  upper_dir,
                  work_dir);
 
-        printf("Mounting overlayfs on %s with options: %s\n",
+        LOG("Mounting overlayfs on %s with options: %s\n",
                mp->mount_point,
                mount_options);
 
@@ -160,7 +160,7 @@ int step3_create_overlayfs(struct args *args)
     }
 
     // Finally mount /var/volatile again
-    printf("Mounting tmpfs on /var/volatile with mode 0755\n");
+    LOG("Mounting tmpfs on /var/volatile with mode 0755\n");
 
     ret = mount("tmpfs", "/var/volatile", "tmpfs", 0, "mode=0755");
     if (ret < 0) {
