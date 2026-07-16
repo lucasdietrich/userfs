@@ -627,6 +627,32 @@ static int disk_delete_userfs_partition(struct fdisk_context *ctx,
     return 0;
 }
 
+/**
+ * Notify the kernel of partition table changes, then re-read and display the updated
+ * partition layout. Call this after any partition create/delete operation.
+ */
+static int disk_reload(struct fdisk_context *ctx,
+                       struct fdisk_label *label,
+                       struct disk_info *disk,
+                       const char *device)
+{
+    int ret = disk_partprobe(device);
+    if (ret < 0) {
+        ERR("Failed to partprobe: %s\n", strerror(errno));
+        return ret;
+    }
+
+    disk_clear_info(disk);
+    ret = disk_read_partitions(ctx, label, disk, device, true);
+    if (ret != 0) {
+        ERR("Failed to read disk info after reload\n");
+        return ret;
+    }
+
+    disk_display_info(disk);
+    return 0;
+}
+
 int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
 {
     int ret                   = -1;
@@ -661,6 +687,7 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
         goto exit;
     }
 
+    /* Initial read + integrity check + display */
     ret = disk_read_partitions(ctx, label, disk, device, true);
     if (ret != 0) {
         ERR("Failed to read disk info\n");
@@ -676,6 +703,7 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
 
     disk_display_info(disk);
 
+    /* Locate the userfs partition */
 #if USERFS_PARTITION_TABLE_DOS
     struct part_info *userfs_part = &disk->partitions[USERFS_PART_NO];
     const char *userfs_label      = "-";
@@ -692,7 +720,7 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
     LOG("[ userfs ] label: %-16s partno: %-4s status: %s\n",
         userfs_label, partno_str, partition_exists ? "exists" : "not found");
 
-    // If the user asked to delete the userfs partition, do it now
+    /* Handle delete request */
     if (args->flags & FLAG_USERFS_DELETE) {
         ret = disk_delete_userfs_partition(ctx, userfs_part);
         if (ret != 0) {
@@ -700,29 +728,24 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
             goto exit;
         }
 
-        // Success - cleanup and return success
         ret = fdisk_deassign_device(ctx, 0);
         if (ret != 0) {
             ERR("Failed to deassign device\n");
             goto exit;
         }
         fdisk_unref_context(ctx);
-
-        // Nothing to do after deletion, exit
         exit(EXIT_SUCCESS);
-    } else if (!partition_exists) {
-        // FIRST BOOT: Userfs partition does not exist
-        // we prefer to reformat the userfs partition to BTRFS even if it exists
-        // from a previous installation, unless the user asked to trust it
-        // with the -t flag.
+    }
+
+    /* Create partition if missing (first boot) */
+    if (!partition_exists) {
         if (args->flags & FLAG_USERFS_TRUST_RESIDENT) {
-            printf("First boot: Trusting existing userfs partition without "
-                   "formatting\n");
+            printf("First boot: Trusting existing userfs partition without formatting\n");
         } else {
             printf("First boot: Userfs partition will be formatted to BTRFS\n");
             args->flags |= FLAG_USERFS_FORCE_FORMAT;
         }
-        // otherwise try to create the userfs partition if it doesn't exist
+
 #if USERFS_PARTITION_TABLE_DOS
         ret = disk_dos_create_userfs_partition(ctx, label, disk, USERFS_PART_NO);
 #elif USERFS_PARTITION_TABLE_GPT
@@ -732,29 +755,18 @@ int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
             ERR("Failed to create userfs partition\n");
             goto exit;
         }
-    }
 
-    if (!partition_exists) {
-        // partprobe before disk_read_partitions with do_blkid_probe=true
-        ret = disk_partprobe(device);
-        if (ret < 0) {
-            ERR("Failed to partprobe: %s\n", strerror(errno));
-            goto exit;
-        }
-
-        ret = disk_read_partitions(ctx, label, disk, device, true);
+        /* Partition table changed — notify kernel and refresh */
+        ret = disk_reload(ctx, label, disk, device);
         if (ret != 0) {
-            ERR("Failed to read disk info\n");
+            ERR("Failed to reload disk after partition creation\n");
             goto exit;
         }
-
-        disk_display_info(disk);
     }
 
     return 0;
 
 exit:
-    // Success - cleanup and return success
     disk_clear_info(disk);
     fdisk_deassign_device(ctx, 0);
     fdisk_unref_context(ctx);
