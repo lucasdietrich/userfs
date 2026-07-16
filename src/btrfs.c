@@ -33,7 +33,7 @@ const char *btrfs_get_volume(size_t sv_index)
     return btrfs_subvolumes[sv_index];
 }
 
-int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_part)
+int create_btrfs_filesystem(struct args *args, struct part_info *userfs_part)
 {
     int ret = -1;
 

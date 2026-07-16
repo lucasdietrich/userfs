@@ -655,7 +655,7 @@ static int disk_reload(struct fdisk_context *ctx,
     return 0;
 }
 
-int step1_create_userfs_partition(struct args *args, struct disk_info *disk)
+int create_userfs_partition(struct args *args, struct disk_info *disk)
 {
     int ret                   = -1;
     uint64_t device_size      = 0;

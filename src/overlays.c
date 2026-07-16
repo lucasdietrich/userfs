@@ -56,7 +56,7 @@ static const struct overlayfs_mount_point overlayfs_mount_points[] = {
 #endif /* USERFS_OVERLAY_OPT */
 };
 
-int step3_create_overlayfs(struct args *args)
+int setup_overlayfs(struct args *args)
 {
     int ret;
 

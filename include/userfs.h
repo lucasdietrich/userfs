@@ -182,12 +182,12 @@ struct args {
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
-int step1_create_userfs_partition(struct args *args, struct disk_info *disk);
+int create_userfs_partition(struct args *args, struct disk_info *disk);
 
-int step2_create_btrfs_filesystem(struct args *args, struct part_info *userfs_part);
+int create_btrfs_filesystem(struct args *args, struct part_info *userfs_part);
 
-int step3_create_overlayfs(struct args *args);
+int setup_overlayfs(struct args *args);
 
-int step4_format_swap_partition(struct args *args, struct disk_info *disk, size_t swap_partno);
+int format_swap_partition(struct args *args, struct disk_info *disk, size_t swap_partno);
 
 #endif /* USERFS_H */

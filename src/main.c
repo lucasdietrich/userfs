@@ -114,7 +114,7 @@ int main(int argc, char *argv[])
     }
 
     // STEP1: Inspect the disk and create userfs partition if it doesn't exist
-    ret = step1_create_userfs_partition(&args, &disk);
+    ret = create_userfs_partition(&args, &disk);
     if (ret != 0) {
         ERR("Failed to create userfs partition: %s\n", strerror(errno));
         goto exit;
@@ -132,7 +132,7 @@ int main(int argc, char *argv[])
         goto exit;
     }
 
-    ret = step2_create_btrfs_filesystem(&args, userfs_part);
+    ret = create_btrfs_filesystem(&args, userfs_part);
     if (ret != 0) {
         ERR("Failed to create BTRFS filesystem: %s\n", strerror(errno));
         goto exit;
@@ -140,7 +140,7 @@ int main(int argc, char *argv[])
 
     if ((args.flags & FLAG_USERFS_SKIP_OVERLAYS) == 0) {
         // STEP3: Create overlayfs for /etc, /var and /home
-        ret = step3_create_overlayfs(&args);
+        ret = setup_overlayfs(&args);
         if (ret != 0) {
             ERR("Failed to create overlayfs: %s\n", strerror(errno));
             goto exit;
@@ -151,7 +151,7 @@ int main(int argc, char *argv[])
 
 #if defined(SWAP_PART_NO)
     // STEP4: Format swap partition if not already formatted
-    ret = step4_format_swap_partition(&args, &disk, SWAP_PART_NO);
+    ret = format_swap_partition(&args, &disk, SWAP_PART_NO);
     if (ret != 0) {
         ERR("Failed to format swap partition: %s\n", strerror(errno));
         goto exit;

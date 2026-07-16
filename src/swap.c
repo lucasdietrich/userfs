@@ -17,7 +17,7 @@
 #include <sys/mount.h>
 #include <unistd.h>
 
-int step4_format_swap_partition(struct args *args,
+int format_swap_partition(struct args *args,
                                 struct disk_info *disk,
                                 size_t swap_partno)
 {
