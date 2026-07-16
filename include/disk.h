@@ -25,11 +25,13 @@
 #define USERFS_PART_LABEL "userfs"
 
 enum fs_type {
-    FS_TYPE_UNKNOWN = 0,
-    FS_TYPE_BTRFS   = 1,
-    FS_TYPE_EXT4    = 2,
-    FS_TYPE_SWAP    = 3,
-    FS_TYPE_VFAT    = 4,
+    FS_TYPE_UNKNOWN   = 0,
+    FS_TYPE_BTRFS     = 1,
+    FS_TYPE_EXT4      = 2,
+    FS_TYPE_SWAP      = 3,
+    FS_TYPE_VFAT      = 4,
+    FS_TYPE_INTEGRITY = 5,
+    FS_TYPE_LVM       = 6,
 };
 
 struct fs_info {

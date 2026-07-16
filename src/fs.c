@@ -15,6 +15,10 @@ static const char *fs_type_to_string(enum fs_type type)
         return "swap";
     case FS_TYPE_VFAT:
         return "vfat";
+    case FS_TYPE_LVM:
+        return "LVM2";
+    case FS_TYPE_INTEGRITY:
+        return "DM_integrity";
     case FS_TYPE_UNKNOWN:
     default:
         return "unknown";
@@ -92,6 +96,10 @@ int fs_probe(const char *part_device, struct fs_info *info)
             info->type = FS_TYPE_SWAP;
         } else if (strcmp(type, "vfat") == 0) {
             info->type = FS_TYPE_VFAT;
+        } else if (strcmp(type, "LVM2_member") == 0) {
+            info->type = FS_TYPE_LVM;
+        } else if (strcmp(type, "DM_integrity") == 0) {
+            info->type = FS_TYPE_INTEGRITY;
         } else {
             info->type = FS_TYPE_UNKNOWN;
             LOG("\tUnknown filesystem type: %s\n", type);
