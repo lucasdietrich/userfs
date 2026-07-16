@@ -39,6 +39,7 @@ else
 endif
 
 add_global_arguments('-DDEFAULT_DISK="' + get_option('default_block_device_name') + '"', language: ['cpp', 'c'])
+add_global_arguments('-DMAX_SUPPORTED_PARTITIONS=' + get_option('max_supported_partitions').to_string() + 'u', language: ['cpp', 'c'])
 
 dependencies = [
   dependency('fdisk'),

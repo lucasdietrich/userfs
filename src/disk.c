@@ -567,6 +567,8 @@ static int disk_gpt_create_partition_if_not_exist(struct fdisk_context *ctx,
         partlabel,
         desired_partno);
 
+    ASSERT(desired_partno < MAX_SUPPORTED_PARTITIONS, "No more partition slots available");
+
     struct part_info *userfs_part = &disk->partitions[desired_partno];
 
     if (userfs_part->used) {

@@ -19,7 +19,9 @@
 #include <libfdisk/libfdisk.h>
 
 #define MAX_DOS_PARTITIONS       4u
-#define MAX_SUPPORTED_PARTITIONS 12u
+#ifndef MAX_SUPPORTED_PARTITIONS
+#define MAX_SUPPORTED_PARTITIONS 16u
+#endif
 
 // TODO move to another header
 #define USERFS_PART_LABEL "userfs"
