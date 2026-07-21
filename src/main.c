@@ -200,12 +200,14 @@ int main(int argc, char *argv[])
         goto exit;
     }
 
+    ret = remove(MANUFACTURER_MOUNT_POINT);
+    if (ret != 0 && errno != ENOENT)
+        ERR("Failed to remove existing manufacturer symlink: %s\n", strerror(errno));
+
     LOG("[ symlink %s -> %s ]\n", manuf_mapper.path, MANUFACTURER_MOUNT_POINT);
     ret = symlink(manuf_mapper.path, MANUFACTURER_MOUNT_POINT);
-    if (ret != 0) {
+    if (ret != 0)
         ERR("Failed to create symlink for manufacturer partition: %s\n", strerror(errno));
-        goto exit;
-    }
 
     if (args.flags & FLAG_UNDO_ALL) {
         ret = remove(MANUFACTURER_MOUNT_POINT);
