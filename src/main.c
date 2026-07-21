@@ -130,8 +130,6 @@ int main(int argc, char *argv[])
         goto exit;
     }
 
-    bool force;
-
 #if FEATURE_TEEFS
     // Create TEEs partition if not already present
     struct part_info *teefs_part = disk_find_partition_by_label(&disk, TEEFS_PART_LABEL);
@@ -141,7 +139,7 @@ int main(int argc, char *argv[])
     }
 
     struct block_device teefs_mapper = {0};
-    force                            = (args.flags & FLAG_USERFS_FORCE_FORMAT) != 0;
+    bool force                       = (args.flags & FLAG_USERFS_FORCE_FORMAT) != 0;
     ret                              = setup_teefs(teefs_part, force, &teefs_mapper);
     if (ret != 0) {
         ERR("Failed to create TEEs partition: %s\n", strerror(errno));
@@ -193,8 +191,7 @@ int main(int argc, char *argv[])
     }
 
     struct block_device manuf_mapper = {0};
-    force                            = (args.flags & FLAG_USERFS_FORCE_FORMAT) != 0;
-    ret = setup_manufacturer_data(manufacturer_part, force, &manuf_mapper);
+    ret = setup_manufacturer_data(manufacturer_part, &manuf_mapper);
     if (ret != 0) {
         ERR("Failed to create manufacturer partition: %s\n", strerror(errno));
         goto exit;
@@ -208,16 +205,6 @@ int main(int argc, char *argv[])
     ret = symlink(manuf_mapper.path, MANUFACTURER_MOUNT_POINT);
     if (ret != 0)
         ERR("Failed to create symlink for manufacturer partition: %s\n", strerror(errno));
-
-    if (args.flags & FLAG_UNDO_ALL) {
-        ret = remove(MANUFACTURER_MOUNT_POINT);
-        if (ret != 0)
-            LOG("Failed to remove manufacturer symlink: %s\n", strerror(errno));
-
-        ret = clear_manufacturer_data(manufacturer_part, true);
-        if (ret != 0)
-            LOG("Failed to clear manufacturer partition: %s\n", strerror(errno));
-    }
 #endif /* FEATURE_MANUFACTURER_PARTITION */
 
     // STEP2: Create BTRFS filesystem on the userfs partition
