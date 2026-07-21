@@ -56,11 +56,9 @@ static const struct overlayfs_mount_point overlayfs_mount_points[] = {
 #endif /* USERFS_OVERLAY_OPT */
 };
 
-int setup_overlayfs(struct args *args)
+int setup_overlayfs(void)
 {
     int ret;
-
-    (void)args; // Unused for now
 
     // First we need to umount /var/volatile tmpfs if it is already mounted
     ret = umount2("/var/volatile", MNT_DETACH);
@@ -92,8 +90,6 @@ int setup_overlayfs(struct args *args)
                  btrfs_sv_name,
                  mp->work_name);
 
-        LOG("Creating overlayfs directories: upper=%s, work=%s\n", upper_dir, work_dir);
-
         // Create directories if they don't exist
         ret = create_directory(upper_dir);
         if (ret != 0) {
@@ -112,8 +108,6 @@ int setup_overlayfs(struct args *args)
                     strerror(errno));
             goto exit;
         }
-
-        LOG("Creating overlayfs mount point: %s\n", mp->mount_point);
 
         // Ensure the mount are not already mounted
         ret = umount2(mp->mount_point, MNT_DETACH);
@@ -135,9 +129,7 @@ int setup_overlayfs(struct args *args)
                  upper_dir,
                  work_dir);
 
-        LOG("Mounting overlayfs on %s with options: %s\n",
-               mp->mount_point,
-               mount_options);
+        LOG("[ mount overlayfs on %s ] options: %s\n", mp->mount_point, mount_options);
 
         /* Make sure the mount point exist by creating it */
         ret = create_directory(mp->mount_point);

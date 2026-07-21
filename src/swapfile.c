@@ -24,11 +24,10 @@
 #include <string.h>
 
 #include <fcntl.h>
+#include <linux/fs.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
-#include <linux/fs.h>
 
 // unused
 int verbose = 0;
@@ -43,7 +42,8 @@ int main(int argc, char *argv[])
 
     int opt;
     while ((opt = getopt(argc, argv, "f")) != -1) {
-        if (opt == 'f') force = true;
+        if (opt == 'f')
+            force = true;
         else {
             fprintf(stderr, "Usage: %s [-f] <swapfile_path> <size_mb>\n", argv[0]);
             return 1;
@@ -84,7 +84,8 @@ int main(int argc, char *argv[])
         }
         flags |= FS_NOCOW_FL;
         if (ioctl(fd, FS_IOC_SETFLAGS, &flags) < 0) {
-            fprintf(stderr, "Failed to set NOCOW flag on %s: %s\n", path, strerror(errno));
+            fprintf(
+                stderr, "Failed to set NOCOW flag on %s: %s\n", path, strerror(errno));
             goto exit;
         }
 
@@ -96,7 +97,10 @@ int main(int argc, char *argv[])
                 for (long i = 0; i < size_mb; i++) {
                     ssize_t written = write(fd, zeros, sizeof(zeros));
                     if (written != (ssize_t)sizeof(zeros)) {
-                        fprintf(stderr, "Failed to write zeros to %s: %s\n", path, strerror(errno));
+                        fprintf(stderr,
+                                "Failed to write zeros to %s: %s\n",
+                                path,
+                                strerror(errno));
                         goto exit;
                     }
                 }
@@ -117,8 +121,8 @@ int main(int argc, char *argv[])
     }
 
     // Step 4: Format
-    const char *const mkswap_args[] = {"mkswap", path, NULL};
-    ret = command_run(NULL, NULL, mkswap_args[0], (char *const *)mkswap_args);
+    const char *mkswap_args[] = {"/sbin/mkswap", path, NULL};
+    ret                       = command_run(NULL, NULL, mkswap_args[0], mkswap_args);
     if (ret < 0) {
         fprintf(stderr, "Failed to format swap file %s: %s\n", path, strerror(errno));
         goto exit;
@@ -127,6 +131,7 @@ int main(int argc, char *argv[])
     ret = 0;
 
 exit:
-    if (fd >= 0) close(fd);
+    if (fd >= 0)
+        close(fd);
     return ret < 0 ? 1 : 0;
 }

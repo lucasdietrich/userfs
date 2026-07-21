@@ -40,25 +40,13 @@ int create_btrfs_filesystem(struct args *args, struct part_info *userfs_part)
     // Some assertions ...
     ASSERT(userfs_part->used, "Userfs partition should be created and in use");
 
-    // inspect the partition info after changes
-    char userfs_part_device[PATH_MAX];
-    ret = disk_part_build_path(
-        args->dev,
-        userfs_part_device,
-        sizeof(userfs_part_device),
-        userfs_part->partno);
-    if (ret < 0) {
-        ERR("Failed to build userfs partition path: %s\n", strerror(errno));
-        goto exit;
-    }
+    LOG("Userfs partition device: %s\n", userfs_part->path);
 
-    LOG("Userfs partition device: %s\n", userfs_part_device);
-
-    ret = fs_probe(userfs_part_device, &userfs_part->fs_info);
+    ret = fs_probe(userfs_part->path, &userfs_part->fs_info);
     if (ret != 0) {
         fprintf(stderr,
                 "Failed to probe filesystem on %s: %s\n",
-                userfs_part_device,
+                userfs_part->path,
                 strerror(errno));
         goto exit;
     }
@@ -83,28 +71,28 @@ int create_btrfs_filesystem(struct args *args, struct part_info *userfs_part)
     if (args->flags & FLAG_USERFS_FORCE_FORMAT) {
         do_format_btrfs = true;
         LOG("Userfs partition (%s) will be formatted to BTRFS due to force flag\n",
-            userfs_part_device);
+            userfs_part->path);
     }
 
     if (do_format_btrfs) {
         // If the userfs partition is not BTRFS, create it
-        LOG("Creating BTRFS filesystem on %s\n", userfs_part_device);
+        LOG("Creating BTRFS filesystem on %s\n", userfs_part->path);
 
-        const char *const mkfs_args[] = {
+        const char *mkfs_args[] = {
             "mkfs.btrfs",
             "-f", // Force creation
-            userfs_part_device,
+            userfs_part->path,
             NULL,
         };
 
-        ret = command_run(NULL, NULL, mkfs_args[0], (char *const *)mkfs_args);
+        ret = command_run(NULL, NULL, mkfs_args[0], mkfs_args);
         LOG("mkfs.btrfs returned: %d\n", ret);
         if (ret < 0) {
             ERR("Failed to create BTRFS filesystem: %s\n", strerror(errno));
             goto exit;
         }
 
-        LOG("BTRFS filesystem created successfully on %s\n", userfs_part_device);
+        LOG("BTRFS filesystem created successfully on %s\n", userfs_part->path);
 
         // Create the mount point if it doesn't exist
         ret = create_directory(USERFS_MOUNT_POINT);
@@ -118,9 +106,9 @@ int create_btrfs_filesystem(struct args *args, struct part_info *userfs_part)
     }
 
     // Mount the btrfs filesystem
-    LOG("Mounting BTRFS filesystem on %s\n", USERFS_MOUNT_POINT);
+    LOG("[ mount %s -> %s ] fs: btrfs\n", userfs_part->path, USERFS_MOUNT_POINT);
 
-    ret = mount(userfs_part_device, USERFS_MOUNT_POINT, "btrfs", 0, NULL);
+    ret = mount(userfs_part->path, USERFS_MOUNT_POINT, "btrfs", 0, NULL);
     if (ret != 0) {
         fprintf(stderr,
                 "Failed to mount BTRFS filesystem on %s: %s\n",
@@ -151,10 +139,8 @@ int create_btrfs_filesystem(struct args *args, struct part_info *userfs_part)
 
             LOG("Creating BTRFS subvolume: %s\n", sv_name);
 
-            ret = command_run(NULL,
-                              NULL,
-                              btrfs_create_subvolumes[0],
-                              (char *const *)btrfs_create_subvolumes);
+            ret = command_run(
+                NULL, NULL, btrfs_create_subvolumes[0], btrfs_create_subvolumes);
             if (ret < 0) {
                 fprintf(stderr,
                         "Failed to create BTRFS subvolume %s: %s\n",

@@ -22,8 +22,10 @@
 #define MB          (1024 * KB)
 #define GB          (1024 * MB)
 
+void hexdump(const void *data, size_t size);
+
 int create_directory(const char *dir);
 
-int command_run(char *buf, size_t *buflen, const char *program, char *const argv[]);
+int command_run(char *buf, size_t *buflen, const char *program, const char *argv[]);
 
 #endif /* USERFS_UTILS_H */

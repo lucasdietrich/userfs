@@ -68,84 +68,95 @@ static int disk_get_size(const char *device, uint64_t *size)
 
     return 0;
 exit:
-    if (fd >= 0) close(fd);
+    if (fd >= 0)
+        close(fd);
     return ret;
+}
+
+/**
+ * Build the path to a partition device node.
+ *
+ * @param device The base device path (e.g., "/dev/mmcblk0").
+ * @param buf The buffer to store the resulting partition path.
+ * @param buf_len The length of the buffer.
+ * @param partno The partition number (0-based).
+ * @return The number of characters written, or a negative value on error.
+ */
+static ssize_t
+disk_part_build_path(const char *device, char *buf, size_t buf_len, size_t partno)
+{
+    return snprintf(buf, buf_len, DISK_PART_FMT, device, partno + 1u);
 }
 
 static int disk_read_partitions(struct fdisk_context *ctx,
                                 struct fdisk_label *label,
                                 struct disk_info *disk,
-                                const char *device,
+                                const char *dev_base,
                                 bool do_blkid_probe)
 {
-    disk->type          = fdisk_label_get_type(label);
-    disk->total_sectors = fdisk_get_nsectors(ctx);
-    disk->total_size    = (uint64_t)disk->total_sectors * SECTOR_SIZE;
+    disk->type       = fdisk_label_get_type(label);
+    disk->nsectors   = fdisk_get_nsectors(ctx);
+    disk->total_size = (uint64_t)disk->nsectors * SECTOR_SIZE;
 
     size_t actual_partition_count = fdisk_get_npartitions(ctx);
     disk->partition_count         = (actual_partition_count > MAX_SUPPORTED_PARTITIONS)
                                         ? MAX_SUPPORTED_PARTITIONS
                                         : actual_partition_count;
 
-    struct fdisk_partition *part = NULL;
-    for (size_t indox = 0; indox < MAX_SUPPORTED_PARTITIONS; indox++) {
-        struct part_info *pinfo = &disk->partitions[indox];
+    struct fdisk_partition *fdisk_part = NULL;
+    for (size_t partno = 0; partno < MAX_SUPPORTED_PARTITIONS; partno++) {
+        struct part_info *part = &disk->partitions[partno];
 
-        pinfo->partno = indox;
-        pinfo->start  = 0;
-        pinfo->end    = 0;
-        pinfo->size   = 0;
-        pinfo->used   = fdisk_is_partition_used(ctx, indox);
+        part->partno = partno;
+        part->start  = 0;
+        part->end    = 0;
+        part->size   = 0;
+        part->used   = fdisk_is_partition_used(ctx, partno);
+        disk_part_build_path(dev_base, part->path, sizeof(part->path), part->partno);
 
-        if (!pinfo->used) continue;
+        if (!part->used)
+            continue;
+        if (fdisk_get_partition(ctx, partno, &fdisk_part) < 0)
+            continue;
 
-        if (fdisk_get_partition(ctx, indox, &part) < 0) continue;
+        struct fdisk_parttype *pt = fdisk_partition_get_type(fdisk_part);
+        if (!pt)
+            continue;
 
-        struct fdisk_parttype *pt = fdisk_partition_get_type(part);
-        if (!pt) continue;
+        part->start     = fdisk_partition_get_start(fdisk_part);
+        part->end       = fdisk_partition_get_end(fdisk_part);
+        part->size      = fdisk_partition_get_size(fdisk_part);
+        part->partno    = fdisk_partition_get_partno(fdisk_part);
+        part->type      = fdisk_parttype_get_code(pt);
+        part->type_name = fdisk_parttype_get_name(pt);
 
-        pinfo->start     = fdisk_partition_get_start(part);
-        pinfo->end       = fdisk_partition_get_end(part);
-        pinfo->size      = fdisk_partition_get_size(part);
-        pinfo->partno    = fdisk_partition_get_partno(part);
-        pinfo->type      = fdisk_parttype_get_code(pt);
-        pinfo->type_name = fdisk_parttype_get_name(pt);
-
-        ASSERT(indox == pinfo->partno, "Partition index must match partition number");
+        ASSERT(partno == part->partno, "Partition index must match partition number");
 
         if (do_blkid_probe) {
             // inspect the partition info after changes
-            char dev[PATH_MAX];
-            int ret = disk_part_build_path(device, dev, sizeof(dev), pinfo->partno);
-            if (ret < 0) {
-                fprintf(stderr,
-                        "Failed to build userfs partition path: %s\n",
-                        strerror(errno));
-                return ret;
-            }
-
-            ret = fs_probe(dev, &pinfo->fs_info);
+            int ret = fs_probe(part->path, &part->fs_info);
             if (ret != 0) {
                 fprintf(stderr,
                         "Failed to probe filesystem on %s: %s\n",
-                        dev,
+                        part->path,
                         strerror(errno));
                 return ret;
             }
-            pinfo->fs_probed = true;
+            part->fs_probed = true;
         } else {
-            pinfo->fs_probed = false;
+            part->fs_probed = false;
         }
     }
 
     disk->last_used_partno = 0;
     for (size_t partno = 0; partno < MAX_SUPPORTED_PARTITIONS; partno++) {
-        if (disk->partitions[partno].used) disk->last_used_partno = partno;
+        if (disk->partitions[partno].used)
+            disk->last_used_partno = partno;
     }
 
     disk->partition_count  = disk->last_used_partno + 1;
     disk->next_free_sector = disk->partitions[disk->last_used_partno].end + 1;
-    disk->free_sectors     = disk->total_sectors - disk->next_free_sector;
+    disk->free_sectors     = disk->nsectors - disk->next_free_sector;
     disk->free_size        = (uint64_t)disk->free_sectors * SECTOR_SIZE;
 
     return 0;
@@ -180,28 +191,30 @@ static const char *disk_label_type_to_string(enum fdisk_labeltype type)
 
 static void disk_display_info(const struct disk_info *disk)
 {
-    LOG("[ disk ] type: %s sectors: %llu sector_size: %uB total: %lluMB free: %lluMB parts: %zu\n",
+    LOG("[ disk ] type: %s sectors: %llu sector_size: %uB total: %lluMB free: %lluMB "
+        "parts: %zu\n",
         disk_label_type_to_string(disk->type),
-        (unsigned long long)disk->total_sectors,
+        (unsigned long long)disk->nsectors,
         SECTOR_SIZE,
         (unsigned long long)(disk->total_size / MB),
         (unsigned long long)(disk->free_size / MB),
         disk->partition_count);
 
     for (size_t n = 0; n < disk->partition_count; n++) {
-        const struct part_info *pinfo = &disk->partitions[n];
+        const struct part_info *part = &disk->partitions[n];
 
-        if (!pinfo->used) continue;
+        if (!part->used)
+            continue;
 
         char size_str[32];
-        format_size(pinfo->size * SECTOR_SIZE, size_str, sizeof(size_str));
+        format_size(part->size * SECTOR_SIZE, size_str, sizeof(size_str));
 
         LOG("[ part %2zu ] %-20s (0x%02x) start: %-12llu end: %-12llu size: %s\n",
-            pinfo->partno,
-            pinfo->type_name ? pinfo->type_name : "?",
-            pinfo->type,
-            (unsigned long long)pinfo->start,
-            (unsigned long long)pinfo->end,
+            part->partno,
+            part->type_name ? part->type_name : "?",
+            part->type,
+            (unsigned long long)part->start,
+            (unsigned long long)part->end,
             size_str);
     }
 }
@@ -228,7 +241,8 @@ disk_add_part(struct fdisk_context *ctx, struct fdisk_label *label, struct part_
     fdisk_partition_set_start(part, new->start);
     fdisk_partition_set_size(part, new->size);
 
-    if (new->part_label) fdisk_partition_set_name(part, new->part_label);
+    if (new->part_label)
+        fdisk_partition_set_name(part, new->part_label);
 
     pt = fdisk_label_get_parttype_from_code(label, new->type);
     if (!pt) {
@@ -248,8 +262,10 @@ disk_add_part(struct fdisk_context *ctx, struct fdisk_label *label, struct part_
     ASSERT(cur_partno == new->partno, "Partition number mismatch after adding partition");
 
 exit:
-    if (part) fdisk_unref_partition(part);
-    if (pt) fdisk_unref_parttype(pt);
+    if (part)
+        fdisk_unref_partition(part);
+    if (pt)
+        fdisk_unref_parttype(pt);
     return ret;
 }
 
@@ -267,7 +283,7 @@ static int disk_dos_add_userfs_as_new_primary_partition(struct fdisk_context *ct
     struct part_info *new  = &disk->partitions[disk->last_used_partno + 1u];
 
     new->start = disk->next_free_sector;
-    new->end   = disk->total_sectors - 1;
+    new->end   = disk->nsectors - 1;
     new->size  = disk->free_sectors;
     new->used  = 1;
     new->type  = USERFS_PART_CODE;
@@ -342,7 +358,7 @@ static int disk_dos_extend_partition_add_userfs(struct fdisk_context *ctx,
     ext->partno = 3u;
     ext->used   = 1;
     ext->start  = disk->next_free_sector;
-    ext->end    = disk->total_sectors - 1;
+    ext->end    = disk->nsectors - 1;
     ext->size   = disk->free_sectors;
     ext->type   = PARTTYPE_CODE_EXTENDED;
 
@@ -386,7 +402,7 @@ static int disk_dos_extend_partition_add_userfs(struct fdisk_context *ctx,
     if (ret != 0) {
         ERR("Failed to add userfs partition\n");
         goto exit;
-    }   
+    }
 
     disk_clear_info(disk);
     ret = disk_read_partitions(ctx, label, disk, NULL, false);
@@ -483,7 +499,7 @@ static int disk_gpt_add_userfs_partition(struct fdisk_context *ctx,
     struct part_info *new  = &disk->partitions[disk->last_used_partno + 1u];
 
     new->start      = disk->next_free_sector;
-    new->end        = disk->total_sectors - 1;
+    new->end        = disk->nsectors - 1;
     new->size       = disk->free_sectors;
     new->used       = 1;
     new->type       = USERFS_PART_CODE;
@@ -525,9 +541,9 @@ struct part_info *disk_find_partition_by_label(struct disk_info *disk,
                                                const char *partlabel)
 {
     for (size_t i = 0; i < disk->partition_count; i++) {
-        struct part_info *pinfo = &disk->partitions[i];
-        if (pinfo->used && strcmp(pinfo->fs_info.part_label, partlabel) == 0) {
-            return pinfo;
+        struct part_info *part = &disk->partitions[i];
+        if (part->used && strcmp(part->fs_info.part_label, partlabel) == 0) {
+            return part;
         }
     }
     return NULL;
@@ -567,7 +583,8 @@ static int disk_gpt_create_partition_if_not_exist(struct fdisk_context *ctx,
         partlabel,
         desired_partno);
 
-    ASSERT(desired_partno < MAX_SUPPORTED_PARTITIONS, "No more partition slots available");
+    ASSERT(desired_partno < MAX_SUPPORTED_PARTITIONS,
+           "No more partition slots available");
 
     struct part_info *userfs_part = &disk->partitions[desired_partno];
 
@@ -598,21 +615,20 @@ void disk_clear_info(struct disk_info *disk)
     memset(disk, 0, sizeof(*disk));
 }
 
-static int disk_delete_userfs_partition(struct fdisk_context *ctx,
-                                        struct part_info *pinfo)
+static int disk_delete_userfs_partition(struct fdisk_context *ctx, struct part_info *part)
 {
     int ret = -1;
 
-    if (!pinfo || !pinfo->used) {
+    if (!part || !part->used) {
         LOG("userfs partition is not in use or does not exist, nothing to delete\n");
         return 0;
     }
 
-    LOG("Deleting userfs partition %zu\n", pinfo->partno);
+    LOG("Deleting userfs partition %zu\n", part->partno);
 
-    ret = fdisk_delete_partition(ctx, pinfo->partno);
+    ret = fdisk_delete_partition(ctx, part->partno);
     if (ret != 0) {
-        ERR("Failed to delete partition %zu\n", pinfo->partno);
+        ERR("Failed to delete partition %zu\n", part->partno);
         return -1;
     }
 
@@ -623,9 +639,9 @@ static int disk_delete_userfs_partition(struct fdisk_context *ctx,
     }
 
     // Update partition info
-    memset(pinfo, 0, sizeof(*pinfo));
+    memset(part, 0, sizeof(*part));
 
-    LOG("Partition %zu deleted successfully\n", pinfo->partno);
+    LOG("Partition %zu deleted successfully\n", part->partno);
     return 0;
 }
 
@@ -655,13 +671,13 @@ static int disk_reload(struct fdisk_context *ctx,
     return 0;
 }
 
-int create_userfs_partition(struct args *args, struct disk_info *disk)
+int setup_userfs(struct args *args, struct disk_info *disk)
 {
     int ret                   = -1;
     uint64_t device_size      = 0;
     struct fdisk_context *ctx = NULL;
     struct fdisk_label *label = NULL;
-    const char *device        = args->dev;
+    const char *dev_base      = args->dev_base;
 
     fdisk_init_debug(0x0);
     blkid_init_debug(0x0);
@@ -672,7 +688,7 @@ int create_userfs_partition(struct args *args, struct disk_info *disk)
         goto exit;
     }
 
-    if (fdisk_assign_device(ctx, device, RO_ENABLED) < 0) {
+    if (fdisk_assign_device(ctx, dev_base, RO_ENABLED) < 0) {
         ERR("Failed to assign device\n");
         goto exit;
     }
@@ -690,13 +706,13 @@ int create_userfs_partition(struct args *args, struct disk_info *disk)
     }
 
     /* Initial read + integrity check + display */
-    ret = disk_read_partitions(ctx, label, disk, device, true);
+    ret = disk_read_partitions(ctx, label, disk, dev_base, true);
     if (ret != 0) {
         ERR("Failed to read disk info\n");
         goto exit;
     }
 
-    if (disk_get_size(device, &device_size) != 0) {
+    if (disk_get_size(dev_base, &device_size) != 0) {
         ERR("Failed to get device size\n");
         goto exit;
     }
@@ -720,7 +736,9 @@ int create_userfs_partition(struct args *args, struct disk_info *disk)
     else
         snprintf(partno_str, sizeof(partno_str), "-");
     LOG("[ userfs ] label: %-16s partno: %-4s status: %s\n",
-        userfs_label, partno_str, partition_exists ? "exists" : "not found");
+        userfs_label,
+        partno_str,
+        partition_exists ? "exists" : "not found");
 
     /* Handle delete request */
     if (args->flags & FLAG_USERFS_DELETE) {
@@ -759,7 +777,7 @@ int create_userfs_partition(struct args *args, struct disk_info *disk)
         }
 
         /* Partition table changed — notify kernel and refresh */
-        ret = disk_reload(ctx, label, disk, device);
+        ret = disk_reload(ctx, label, disk, dev_base);
         if (ret != 0) {
             ERR("Failed to reload disk after partition creation\n");
             goto exit;
@@ -790,17 +808,26 @@ int disk_partprobe(const char *device)
     //     sleep(1); // Wait for /dev/mmcblk0pX to appear
     // }
 
-    char *const partprobe_args[] = {
-        "partprobe",
-        (char *)device,
+    const char *partprobe_args[] = {
+        "/usr/sbin/partprobe",
+        device,
         NULL,
     };
-    ret = command_run(NULL, NULL, "partprobe", partprobe_args);
+    ret = command_run(NULL, NULL, partprobe_args[0], partprobe_args);
 
     return ret;
 }
 
-ssize_t disk_part_build_path(const char *device, char *buf, size_t buf_len, size_t partno)
+void mapper_info_display(const struct block_device *mapper)
 {
-    return snprintf(buf, buf_len, DISK_PART_FMT, device, partno + 1u);
+    if (!mapper)
+        return;
+
+    char size_str[32];
+    format_size(mapper->sectors * SECTOR_SIZE, size_str, sizeof(size_str));
+
+    LOG("[ mapper %-20s ] size: %s (sectors %llu)\n",
+        mapper->path,
+        size_str,
+        (unsigned long long)mapper->sectors);
 }

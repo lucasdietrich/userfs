@@ -22,15 +22,12 @@ setup:
     meson {{builddir}} --buildtype=debug \
         -Ddefault_block_device_name=/dev/mmcblk0 \
         -Dpartition_table=gpt \
-        -Doverlay_opt=true \
-        -Dswap=true; \
+        -Doverlay_opt=true; \
   fi
 
 setup_sdd:
   if [ ! -f {{builddir}}/build.ninja ]; then \
     meson {{builddir}} --buildtype=debug \
-        -Dswap=true \
-        -Dswap_partno=4 \
         -Duserfs_partno=5 \
         -Dblock_device_type=disk \
       -Ddefault_block_device_name=/dev/sdd; \

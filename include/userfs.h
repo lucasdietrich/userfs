@@ -143,21 +143,24 @@
 #error "Unsupported block device type"
 #endif
 
-#define USERFS_MOUNT_POINT "/mnt/userfs"
+#define USERFS_MOUNT_POINT       "/mnt/userfs"
+#define TEEFS_MOUNT_POINT        "/mnt/tee-fs"
+#define MANUFACTURER_MOUNT_POINT "/mnt/manufacturer-data"
 
-#define BOOT_PART_NO   0u
-#define ROOTFS_PART_NO 1u
+#define TEEFS_MAPPER_NAME        "tee-fs"
+#define MANUFACTURER_MAPPER_NAME "manufacturer-data"
 
 #define FLAG_USERFS_DELETE         (1 << 1u)
 #define FLAG_USERFS_FORCE_FORMAT   (1 << 2u)
 #define FLAG_USERFS_TRUST_RESIDENT (1 << 3u)
 #define FLAG_USERFS_SKIP_OVERLAYS  (1 << 4u)
+#define FLAG_UNDO_ALL              (1 << 5u)
 
 extern int verbose;
 
 struct args {
     uint32_t flags; // Bitmask for flags
-    const char *dev;
+    const char *dev_base;
 };
 
 #define LOG(fmt, ...)                                                                    \
@@ -182,12 +185,12 @@ struct args {
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
-int create_userfs_partition(struct args *args, struct disk_info *disk);
+int setup_userfs(struct args *args, struct disk_info *disk);
 
 int create_btrfs_filesystem(struct args *args, struct part_info *userfs_part);
 
-int setup_overlayfs(struct args *args);
+int setup_overlayfs(void);
 
-int format_swap_partition(struct args *args, struct disk_info *disk, size_t swap_partno);
+int format_swap_partition(struct part_info *part);
 
 #endif /* USERFS_H */

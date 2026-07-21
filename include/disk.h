@@ -17,6 +17,7 @@
 #include <string.h>
 #include <errno.h>
 #include <libfdisk/libfdisk.h>
+#include <linux/limits.h>
 
 #define MAX_DOS_PARTITIONS       4u
 #ifndef MAX_SUPPORTED_PARTITIONS
@@ -25,6 +26,9 @@
 
 // TODO move to another header
 #define USERFS_PART_LABEL "userfs"
+#define TEEFS_PART_LABEL "tee-fs"
+#define SWAP_PART_LABEL "swap"
+#define MANUFACTURER_PART_LABEL "manufacturer-data"
 
 enum fs_type {
     FS_TYPE_UNKNOWN   = 0,
@@ -38,13 +42,12 @@ enum fs_type {
 
 struct fs_info {
     enum fs_type type;
-    char _reversed[3];
     char uuid[37u]; // UUID is 36 characters + null terminator
     char part_label[64u];
 };
 
-
 struct part_info {
+    /* fdisk infos */
     fdisk_sector_t start;
     fdisk_sector_t end;
     fdisk_sector_t size;
@@ -54,6 +57,9 @@ struct part_info {
     const char *type_name;
     const char *part_label;
 
+    /* absolute path to partition device */
+    char path[PATH_MAX];
+
     /* FS informations if any */
     bool fs_probed;
     struct fs_info fs_info;
@@ -61,7 +67,7 @@ struct part_info {
 
 struct disk_info {
     int type;
-    fdisk_sector_t total_sectors;
+    fdisk_sector_t nsectors;
     uint64_t total_size; // in bytes
 
     size_t partition_count;
@@ -74,16 +80,29 @@ struct disk_info {
     uint64_t free_size; // in bytes
 };
 
+struct block_device {
+    /* infos */
+    uint64_t sectors;
+
+    /* absolute path to partition device */
+    char path[PATH_MAX];
+};
+
+struct mapper {
+    /* infos */
+    uint64_t sectors;
+
+    /* absolute path to partition device */
+    char path[PATH_MAX];
+};
+
 int disk_partprobe(const char *device);
 
 void disk_clear_info(struct disk_info *disk);
 
-ssize_t disk_part_build_path(const char *device,
-                            char *buf,
-                            size_t buf_len,
-                            size_t partno);
-
 struct part_info *disk_find_partition_by_label(struct disk_info *disk,
                                                const char *partlabel);
+
+void mapper_info_display(const struct block_device *mapper);
 
 #endif /* USERFS_DISK_H */

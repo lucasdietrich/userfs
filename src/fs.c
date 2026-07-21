@@ -124,24 +124,29 @@ int fs_probe(const char *part_device, struct fs_info *info)
     }
 #endif
 
-    LOG("[ part %-18s ] PARTLABEL: %-16s",
+    LOG("[ probe %-18s ] PARTLABEL: %-16s",
         part_device,
         info->part_label[0] ? info->part_label : "-");
-    if (info->uuid[0]) LOG(" UUID: %-36s", info->uuid);
-    if (info->type != FS_TYPE_UNKNOWN) LOG(" type: %s", fs_type_to_string(info->type));
+    if (info->uuid[0])
+        LOG(" UUID: %-36s", info->uuid);
+    if (info->type != FS_TYPE_UNKNOWN)
+        LOG(" type: %s", fs_type_to_string(info->type));
     LOG("\n");
 
     ret = 0;
 
 exit:
-    if (pr) blkid_free_probe(pr);
-    if (fd >= 0) close(fd);
+    if (pr)
+        blkid_free_probe(pr);
+    if (fd >= 0)
+        close(fd);
     return ret;
 }
 
 void fs_info_display(const struct fs_info *info)
 {
-    if (!info) return;
+    if (!info)
+        return;
 
     LOG("[ fs ] type: %-8s PARTLABEL: %-16s UUID: %-36s\n",
         fs_type_to_string(info->type),
@@ -151,7 +156,8 @@ void fs_info_display(const struct fs_info *info)
 
 void fs_info_display_inline(const struct fs_info *info)
 {
-    if (!info) return;
+    if (!info)
+        return;
 
     LOG("type: %-8s PARTLABEL: %-16s UUID: %-36s\n",
         fs_type_to_string(info->type),

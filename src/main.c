@@ -13,7 +13,12 @@
 
 // #include <cstdio>
 #include "disk.h"
+#include "dm.h"
+#include "ext4.h"
+#include "manufacturer-partitions.h"
+#include "teefs.h"
 #include "userfs.h"
+#include "utils.h"
 
 #include <errno.h>
 
@@ -41,6 +46,8 @@ static void print_usage(const char *program_name)
            "with -t)\n");
     printf("  -o    Skip overlayfs setup (useful for debugging)\n");
     printf("  -v    Enable verbose output\n");
+    printf("  -u    Undo all changes made by this program (delete userfs partition, "
+           "remove overlays, etc.)\n");
     printf("  -h    Show this help message\n");
     printf("  (no args) Create (userfs) partition if it doesn't exist\n");
     printf("\n");
@@ -55,13 +62,13 @@ static int parse_args(int argc, char *argv[], struct args *args)
         return -1;
     }
 
-    while ((opt = getopt(argc, argv, "hb:dfvot")) != -1) {
+    while ((opt = getopt(argc, argv, "hb:dfvotu")) != -1) {
         switch (opt) {
         case 'h':
             print_usage(argv[0]);
             exit(EXIT_SUCCESS);
         case 'b':
-            args->dev = optarg;
+            args->dev_base = optarg;
             break;
         case 'd':
             args->flags |= FLAG_USERFS_DELETE;
@@ -77,6 +84,9 @@ static int parse_args(int argc, char *argv[], struct args *args)
             break;
         case 'v':
             verbose = 1;
+            break;
+        case 'u':
+            args->flags |= FLAG_UNDO_ALL;
             break;
         case '?':
             ERR("Unknown option: -%c\n", opt);
@@ -97,7 +107,7 @@ int main(int argc, char *argv[])
     int ret               = -1;
     struct disk_info disk = {0};
     struct args args      = {
-        .dev = DEFAULT_DISK,
+             .dev_base = DEFAULT_DISK,
     };
 
     ret = parse_args(argc, argv, &args);
@@ -107,18 +117,123 @@ int main(int argc, char *argv[])
     }
 
     // partprob
-    ret = disk_partprobe(args.dev);
+    ret = disk_partprobe(args.dev_base);
     if (ret < 0) {
         ERR("Failed to partprobe: %s\n", strerror(errno));
         goto exit;
     }
 
     // STEP1: Inspect the disk and create userfs partition if it doesn't exist
-    ret = create_userfs_partition(&args, &disk);
+    ret = setup_userfs(&args, &disk);
     if (ret != 0) {
         ERR("Failed to create userfs partition: %s\n", strerror(errno));
         goto exit;
     }
+
+    bool force;
+
+#if FEATURE_TEEFS
+    // Create TEEs partition if not already present
+    struct part_info *teefs_part = disk_find_partition_by_label(&disk, TEEFS_PART_LABEL);
+    if (!teefs_part) {
+        ERR("Failed to find TEEs partition\n");
+        goto exit;
+    }
+
+    struct block_device tee_dmintegrity = {0};
+    force                               = (args.flags & FLAG_USERFS_FORCE_FORMAT) != 0;
+    ret = setup_teefs(teefs_part, force, &tee_dmintegrity);
+    if (ret != 0) {
+        ERR("Failed to create TEEs partition: %s\n", strerror(errno));
+        goto exit;
+    }
+
+    ret = create_directory(TEEFS_MOUNT_POINT);
+    if (ret != 0) {
+        ERR("Failed to create TEEs mount point: %s\n", strerror(errno));
+        goto exit;
+    }
+
+    LOG("[ mount %s -> %s ] fstype: ext4, flags: noatime,nodev,nosuid,noexec,nosymfollow "
+        "with options: errors=remount-ro\n",
+        tee_dmintegrity.path,
+        TEEFS_MOUNT_POINT);
+    ret = mount(tee_dmintegrity.path,
+                TEEFS_MOUNT_POINT,
+                "ext4",
+                MS_NOATIME | MS_NODEV | MS_NOSUID | MS_NOEXEC | MS_NOSYMFOLLOW,
+                "errors=remount-ro");
+    if (ret != 0) {
+        ERR("Failed to mount TEEs partition: %s\n", strerror(errno));
+        goto exit;
+    }
+
+    if (args.flags & FLAG_UNDO_ALL) {
+        ret = umount(TEEFS_MOUNT_POINT);
+        if (ret != 0)
+            LOG("Failed to unmount TEEs partition: %s\n", strerror(errno));
+
+        ret = remove(TEEFS_MOUNT_POINT);
+        if (ret != 0)
+            LOG("Failed to remove TEEs mount point: %s\n", strerror(errno));
+
+        ret = clear_teefs(teefs_part, true);
+        if (ret != 0)
+            LOG("Failed to clear TEEs partition: %s\n", strerror(errno));
+    }
+#endif /* FEATURE_TEEFS */
+
+#if FEATURE_MANUFACTURER_PARTITION
+    // Create manufacturer partition if not already present
+    struct part_info *manufacturer_part =
+        disk_find_partition_by_label(&disk, MANUFACTURER_PART_LABEL);
+    if (!manufacturer_part) {
+        ERR("Failed to find manufacturer partition\n");
+        goto exit;
+    }
+
+    struct block_device manuf_dmintegrity = {0};
+    force                                 = (args.flags & FLAG_USERFS_FORCE_FORMAT) != 0;
+    ret = setup_manufacturer_data(manufacturer_part, force, &manuf_dmintegrity);
+    if (ret != 0) {
+        ERR("Failed to create manufacturer partition: %s\n", strerror(errno));
+        goto exit;
+    }
+
+    ret = create_directory(MANUFACTURER_MOUNT_POINT);
+    if (ret != 0) {
+        ERR("Failed to create manufacturer mount point: %s\n", strerror(errno));
+        goto exit;
+    }
+
+    LOG("[ mount %s -> %s ] fstype: ext4, flags: noatime,nodev,nosuid,noexec,nosymfollow "
+        "with options: errors=remount-ro\n",
+        manuf_dmintegrity.path,
+        MANUFACTURER_MOUNT_POINT);
+    ret = mount(manuf_dmintegrity.path,
+                MANUFACTURER_MOUNT_POINT,
+                "ext4",
+                MS_NOATIME | MS_NODEV | MS_NOSUID | MS_NOEXEC | MS_NOSYMFOLLOW,
+                "errors=remount-ro");
+    if (ret != 0) {
+        ERR("Failed to mount manufacturer partition: %s\n", strerror(errno));
+        goto exit;
+    }
+
+    if (args.flags & FLAG_UNDO_ALL) {
+        ret = umount(MANUFACTURER_MOUNT_POINT);
+        if (ret != 0)
+            LOG("Failed to unmount manufacturer partition: %s\n", strerror(errno));
+
+        ret = remove(MANUFACTURER_MOUNT_POINT);
+        if (ret != 0)
+            LOG("Failed to remove manufacturer mount point: %s\n", strerror(errno));
+
+        ret = clear_manufacturer_data(manufacturer_part, true);
+        if (ret != 0)
+            LOG("Failed to clear manufacturer partition: %s\n", strerror(errno));
+    }
+#endif /* FEATURE_MANUFACTURER_PARTITION */
 
     // STEP2: Create BTRFS filesystem on the userfs partition
     struct part_info *userfs_part;
@@ -140,7 +255,7 @@ int main(int argc, char *argv[])
 
     if ((args.flags & FLAG_USERFS_SKIP_OVERLAYS) == 0) {
         // STEP3: Create overlayfs for /etc, /var and /home
-        ret = setup_overlayfs(&args);
+        ret = setup_overlayfs();
         if (ret != 0) {
             ERR("Failed to create overlayfs: %s\n", strerror(errno));
             goto exit;
@@ -149,14 +264,20 @@ int main(int argc, char *argv[])
         printf("Skipping overlayfs setup as per user request\n");
     }
 
-#if defined(SWAP_PART_NO)
-    // STEP4: Format swap partition if not already formatted
-    ret = format_swap_partition(&args, &disk, SWAP_PART_NO);
+// Create TEEs partition if not already present
+#if defined(SWAP_PART)
+    struct part_info *swap_part = disk_find_partition_by_label(&disk, SWAP_PART_LABEL);
+    if (!swap_part) {
+        ERR("Failed to find swap partition\n");
+        goto exit;
+    }
+
+    ret = format_swap_partition(swap_part);
     if (ret != 0) {
         ERR("Failed to format swap partition: %s\n", strerror(errno));
         goto exit;
     }
-#endif /* SWAP_PART_NO */
+#endif /* SWAP_PART */
 
 exit:
     disk_clear_info(&disk);

@@ -2,12 +2,9 @@
 #include "fs.h"
 #include "userfs.h"
 
-#include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include <blkid.h>
@@ -17,41 +14,17 @@
 #include <sys/mount.h>
 #include <unistd.h>
 
-int format_swap_partition(struct args *args,
-                                struct disk_info *disk,
-                                size_t swap_partno)
+int format_swap_partition(struct part_info *part)
 {
-    (void)args;
+    return 0;
     int ret = -1;
 
-    if (swap_partno >= disk->partition_count) {
-        ERR("Invalid swap partition number: %zu\n", swap_partno);
-        goto exit;
-    }
-
-    char swap_part_device[PATH_MAX];
-    ret = disk_part_build_path(
-        args->dev, swap_part_device, sizeof(swap_part_device), swap_partno);
-    if (ret < 0) {
-        ERR("Failed to build swap partition path: %s\n", strerror(errno));
-        goto exit;
-    }
-
-    LOG("Formatting swap partition %zu (%s)\n", swap_partno, swap_part_device);
-
-    struct part_info *swap_part = &disk->partitions[swap_partno];
-    ret                         = fs_probe(swap_part_device, &swap_part->fs_info);
-    if (ret < 0) {
-        ERR("Failed to probe swap partition: %s\n", strerror(errno));
-        goto exit;
-    }
-
-    fs_info_display(&swap_part->fs_info);
+    ASSERT(part->fs_probed == true, "Partition must be probed before formatting\n");
 
     bool do_format_swap = false;
-    switch (swap_part->fs_info.type) {
+    switch (part->fs_info.type) {
     case FS_TYPE_SWAP:
-        LOG("Swap partition %zu already formatted, skipping\n", swap_partno);
+        LOG("Swap partition already formatted, skipping\n");
         break;
     case FS_TYPE_UNKNOWN:
     default:
@@ -60,20 +33,20 @@ int format_swap_partition(struct args *args,
     }
 
     if (do_format_swap) {
-        const char *const mkswap_args[] = {
-            "mkswap",
-            swap_part_device,
+        const char *mkswap_args[] = {
+            "/sbin/mkswap",
+            part->path,
             NULL,
         };
 
-        ret = command_run(NULL, NULL, mkswap_args[0], (char *const *)mkswap_args);
+        ret = command_run(NULL, NULL, mkswap_args[0], mkswap_args);
         LOG("mkswap returned: %d\n", ret);
         if (ret < 0) {
             ERR("Failed to create swap space: %s\n", strerror(errno));
             goto exit;
         }
 
-        LOG("Swap space created successfully on %s\n", swap_part_device);
+        LOG("Swap space created successfully on %s\n", part->path);
     }
 
     ret = 0;

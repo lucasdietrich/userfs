@@ -24,8 +24,8 @@ else
   error('Unsupported partition table type: ' + get_option('partition_table'))
 endif
 
-if get_option('swap')
-  add_global_arguments('-DSWAP_PART_NO=' + get_option('swap_partno'), language: ['cpp', 'c'])
+if get_option('swap_part')
+  add_global_arguments('-DSWAP_PART', language: ['cpp', 'c'])
 endif
 
 if get_option('overlay_opt')
@@ -38,12 +38,20 @@ else
   add_global_arguments('-DUSERFS_BLOCK_DEVICE_TYPE_DISK', language: ['cpp', 'c'])
 endif
 
+if get_option('teefs')
+  add_global_arguments('-DFEATURE_TEEFS', language: ['cpp', 'c'])
+endif
+if get_option('manufacturer_partition')
+  add_global_arguments('-DFEATURE_MANUFACTURER_PARTITION', language: ['cpp', 'c'])
+endif
+
 add_global_arguments('-DDEFAULT_DISK="' + get_option('default_block_device_name') + '"', language: ['cpp', 'c'])
 add_global_arguments('-DMAX_SUPPORTED_PARTITIONS=' + get_option('max_supported_partitions').to_string() + 'u', language: ['cpp', 'c'])
 
 dependencies = [
   dependency('fdisk'),
   dependency('blkid'),
+  dependency('devmapper'),
 ]
 
 sources = [
@@ -52,8 +60,13 @@ sources = [
   'src/utils.c',
   'src/overlays.c',
   'src/btrfs.c',
+  'src/ext4.c',
   'src/disk.c',
   'src/swap.c',
+  'src/stack.c',
+  'src/teefs.c',
+  'src/manufacturer-partitions.c',
+  'src/dm.c',
 ]
 
 include_directories = [

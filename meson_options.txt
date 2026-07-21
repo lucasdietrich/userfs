@@ -8,9 +8,11 @@ option('block_device_type', type: 'combo', choices: ['disk', 'mmc'], value: 'mmc
   description: 'Block device type to use for the disk image')
 option('default_block_device_name', type: 'string', value: '/dev/mmcblk0',
   description: 'Default block device name to use when no runtime override is provided')
-option('swap', type: 'boolean', value: false,
+option('swap_part', type: 'boolean', value: false,
   description: 'Create a swap partition')
-option('swap_partno', type: 'combo', choices: ['4'], value: '4',
-  description: 'Partition number for the swap partition in the disk image (starting from 0)')
 option('max_supported_partitions', type: 'integer', value: 16,
   description: 'Maximum number of supported partitions')
+option('teefs', type: 'boolean', value: true,
+  description: 'Create a TEEs partition as dm-integrity and EXT4 filesystem')
+option('manufacturer_partition', type: 'boolean', value: true,
+  description: 'Create a manufacturer partition as dm-integrity')
