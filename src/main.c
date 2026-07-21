@@ -140,9 +140,9 @@ int main(int argc, char *argv[])
         goto exit;
     }
 
-    struct block_device tee_dmintegrity = {0};
-    force                               = (args.flags & FLAG_USERFS_FORCE_FORMAT) != 0;
-    ret = setup_teefs(teefs_part, force, &tee_dmintegrity);
+    struct block_device teefs_mapper = {0};
+    force                            = (args.flags & FLAG_USERFS_FORCE_FORMAT) != 0;
+    ret                              = setup_teefs(teefs_part, force, &teefs_mapper);
     if (ret != 0) {
         ERR("Failed to create TEEs partition: %s\n", strerror(errno));
         goto exit;
@@ -156,9 +156,9 @@ int main(int argc, char *argv[])
 
     LOG("[ mount %s -> %s ] fstype: ext4, flags: noatime,nodev,nosuid,noexec,nosymfollow "
         "with options: errors=remount-ro\n",
-        tee_dmintegrity.path,
+        teefs_mapper.path,
         TEEFS_MOUNT_POINT);
-    ret = mount(tee_dmintegrity.path,
+    ret = mount(teefs_mapper.path,
                 TEEFS_MOUNT_POINT,
                 "ext4",
                 MS_NOATIME | MS_NODEV | MS_NOSUID | MS_NOEXEC | MS_NOSYMFOLLOW,
@@ -192,42 +192,25 @@ int main(int argc, char *argv[])
         goto exit;
     }
 
-    struct block_device manuf_dmintegrity = {0};
-    force                                 = (args.flags & FLAG_USERFS_FORCE_FORMAT) != 0;
-    ret = setup_manufacturer_data(manufacturer_part, force, &manuf_dmintegrity);
+    struct block_device manuf_mapper = {0};
+    force                            = (args.flags & FLAG_USERFS_FORCE_FORMAT) != 0;
+    ret = setup_manufacturer_data(manufacturer_part, force, &manuf_mapper);
     if (ret != 0) {
         ERR("Failed to create manufacturer partition: %s\n", strerror(errno));
         goto exit;
     }
 
-    ret = create_directory(MANUFACTURER_MOUNT_POINT);
+    LOG("[ symlink %s -> %s ]\n", manuf_mapper.path, MANUFACTURER_MOUNT_POINT);
+    ret = symlink(manuf_mapper.path, MANUFACTURER_MOUNT_POINT);
     if (ret != 0) {
-        ERR("Failed to create manufacturer mount point: %s\n", strerror(errno));
-        goto exit;
-    }
-
-    LOG("[ mount %s -> %s ] fstype: ext4, flags: noatime,nodev,nosuid,noexec,nosymfollow "
-        "with options: errors=remount-ro\n",
-        manuf_dmintegrity.path,
-        MANUFACTURER_MOUNT_POINT);
-    ret = mount(manuf_dmintegrity.path,
-                MANUFACTURER_MOUNT_POINT,
-                "ext4",
-                MS_NOATIME | MS_NODEV | MS_NOSUID | MS_NOEXEC | MS_NOSYMFOLLOW,
-                "errors=remount-ro");
-    if (ret != 0) {
-        ERR("Failed to mount manufacturer partition: %s\n", strerror(errno));
+        ERR("Failed to create symlink for manufacturer partition: %s\n", strerror(errno));
         goto exit;
     }
 
     if (args.flags & FLAG_UNDO_ALL) {
-        ret = umount(MANUFACTURER_MOUNT_POINT);
-        if (ret != 0)
-            LOG("Failed to unmount manufacturer partition: %s\n", strerror(errno));
-
         ret = remove(MANUFACTURER_MOUNT_POINT);
         if (ret != 0)
-            LOG("Failed to remove manufacturer mount point: %s\n", strerror(errno));
+            LOG("Failed to remove manufacturer symlink: %s\n", strerror(errno));
 
         ret = clear_manufacturer_data(manufacturer_part, true);
         if (ret != 0)

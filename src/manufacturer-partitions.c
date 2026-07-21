@@ -15,10 +15,9 @@ int setup_manufacturer_data(struct part_info *part,
     struct partition_stack stack = {
         .part    = part,
         .name    = "manufacturer",
-        .nlayers = 2,
+        .nlayers = 1,
         .layers  = {
              {.type = LAYER_DM_INTEGRITY, .mapper_name = MANUFACTURER_MAPPER_NAME},
-             {.type = LAYER_FS_EXT4},
         }};
 
     int ret = partition_stack_setup(&stack, force);

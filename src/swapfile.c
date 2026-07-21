@@ -14,7 +14,6 @@
 // # 4. Enable
 // swapon /mnt/userfs/swapfile
 
-#define _GNU_SOURCE
 #include "utils.h"
 
 #include <errno.h>

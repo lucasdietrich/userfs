@@ -11,7 +11,7 @@ project('userfs', 'cpp', 'c',
 )
 
 add_global_arguments([
-
+  '-D_GNU_SOURCE',
 ], language: ['cpp', 'c'])
 
 
