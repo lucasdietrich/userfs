@@ -78,7 +78,7 @@ static void command_display(const char *program, const char *argv[])
 
     LOG("[ cmd ] %s", program);
     for (int i = 1; argv[i]; i++) {
-        char *has_space = strchr(argv[i], ' ');
+        const char *has_space = strchr(argv[i], ' ');
         LOG(has_space ? " '%s'" : " %s", argv[i]);
     }
     LOG("\n");
