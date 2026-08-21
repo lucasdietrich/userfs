@@ -1,9 +1,19 @@
 # userfs
 
+TODOs
+
 1. [x] Create a new partition after the last partition on the disk which occupies the whole disk.
 2. [w] Format the partition as btrfs, mount it to `/mnt/userfs`.
 3. [w] Create btrfs subvolumes and associated overlayfs for directories `/etc`, `/var` and `/home`.
 4. [w] Create a init script to run the program after the `mountall` command.
+
+## .env
+
+```
+# Yocto SDK
+source /opt/amy/1.0/environment-setup-*
+
+```
 
 ## Remote debug:
 
