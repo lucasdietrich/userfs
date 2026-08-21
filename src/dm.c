@@ -135,7 +135,7 @@ int dm_integrity_map(const char *mapper_name,
 
         // 2. load the dm-integrity target with one-sector size, the kernel driver will
         // format the device
-        ret = dm_create(mapper_name, 1llu, device, false);
+        ret = dm_create(mapper_name, 1llu, device, true);
         if (ret != 0)
             return ret;
 
@@ -159,6 +159,11 @@ int dm_integrity_map(const char *mapper_name,
     memcpy(&dev->sectors,
            sb + SB_PROVIDED_DATA_SECTORS_OFFSET,
            SB_PROVIDED_DATA_SECTORS_SIZE);
+    if (dev->sectors == 0) {
+        ERR("dm-integrity superblock has provided_data_sectors=0\n");
+        ret = -1;
+        goto exit;
+    }
 
     close(fd);
     fd = -1;
@@ -193,9 +198,11 @@ int dm_create(const char *mapper_name, uint64_t sectors, const char *dev, bool w
     uint32_t cookie     = 0;
     uint16_t udev_flags = 0; /* or DM_UDEV_DISABLE_LIBRARY_FALLBACK etc. */
 
+    if (wait) {
     if (!dm_task_set_cookie(dmt, &cookie, udev_flags)) {
         dm_task_destroy(dmt);
         return -1;
+        }
     }
 
     int ret = dm_task_run(dmt) ? 0 : -1;
